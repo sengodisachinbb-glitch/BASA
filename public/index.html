@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BASA</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- 1. Background (animated orbs) -->
+    <div class="background">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+        <div class="noise"></div>
+    </div>
+
+    <!-- 2. App Container -->
+    <div id="app">
+
+        <!-- 3. Navbar (glass-subtle) -->
+        <nav id="navbar" class="navbar glass-subtle">
+            <div class="nav-inner">
+                <a href="#home" class="logo">
+                    <div class="logo-mark"></div>
+                    <span>BASA</span>
+                </a>
+                <div class="search-wrapper">
+                    <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                    <input type="text" id="search-input" placeholder="Search songs, artists, albums..." autocomplete="off">
+                    <select id="quality-filter" class="quality-selector" title="Audio Quality">
+                        <option value="AUTO">Auto (Best Available)</option>
+                        <option value="HIGH">High Quality</option>
+                        <option value="LOSSLESS">Lossless</option>
+                        <option value="HI_RES_LOSSLESS">Hi-Res Lossless</option>
+                    </select>
+                </div>
+                <div class="nav-actions">
+                    <button id="upload-nav-btn" class="nav-button" title="Upload Music">↑ Upload</button>
+                    <button id="auth-btn" class="nav-button" title="Sign In">Sign In</button>
+                    <div id="user-menu" class="user-menu hidden">
+                        <div id="user-avatar" class="user-avatar">U</div>
+                        <span id="user-name">User</span>
+                        <button id="logout-btn" class="nav-button">Logout</button>
+                    </div>
+                </div>
+                <button id="mobileMenuButton" class="mobile-menu-button" aria-label="Menu" aria-expanded="false">
+                    <span></span><span></span><span></span>
+                </button>
+            </div>
+        </nav>
+
+        <!-- 4. App Layout (sidebar + main) -->
+        <div class="app-layout">
+            <!-- Sidebar -->
+            <aside id="sidebar" class="sidebar glass-standard">
+                <nav class="sidebar-nav">
+                    <a href="#home" class="sidebar-link active" data-view="home">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>
+                        Home
+                    </a>
+                    <a href="#search" class="sidebar-link" data-view="search">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                        Search
+                    </a>
+                    <a href="#library" class="sidebar-link" data-view="library">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                        Library
+                    </a>
+                    <a href="#uploads" class="sidebar-link" data-view="uploads">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        My Uploads
+                    </a>
+                    <a href="#sync" class="sidebar-link" data-view="sync" id="nav-sync-btn">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                        Sync Devices
+                    </a>
+                    <a href="#telegram" class="sidebar-link" data-view="telegram" id="nav-telegram-btn">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+                        Telegram Vault
+                    </a>
+                </nav>
+                <div class="sidebar-divider"></div>
+                <div class="sidebar-playlists">
+                    <div class="sidebar-playlists-header">
+                        <h3>Playlists</h3>
+                        <button id="create-playlist-btn" class="create-playlist-btn" title="Create Playlist">+</button>
+                    </div>
+                    <ul id="playlist-list" class="playlist-list">
+                        <li class="playlist-empty">Sign in to create playlists</li>
+                    </ul>
+                </div>
+            </aside>
+
+            <!-- Main Content Area -->
+            <main id="main-content" class="main-content">
+
+                <!-- HOME VIEW -->
+                <div id="view-home" class="view active">
+                    <section class="content-section">
+                        <h2 class="section-title">🔥 Trending Now</h2>
+                        <div id="charts-grid" class="track-grid"></div>
+                    </section>
+                    <section class="content-section" id="lossless-section">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+                            <h2 class="section-title" style="margin-bottom: 0;">💎 Hi-Fi &amp; Lossless Audio</h2>
+                            <span class="quality-badge badge-gold" style="font-size: 11px; padding: 4px 10px;">STUDIO MASTER · FLAC / LOSSLESS</span>
+                        </div>
+                        <div id="lossless-grid" class="track-grid"></div>
+                    </section>
+                    <section class="content-section">
+                        <h2 class="section-title">⏱ Recently Played</h2>
+                        <div id="recent-grid" class="track-grid">
+                            <p class="empty-state">Your recently played tracks will appear here</p>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- SEARCH VIEW -->
+                <div id="view-search" class="view">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+                        <h2 class="section-title" style="margin-bottom:0;">Search Results</h2>
+                        <button id="search-request-btn" class="button button-secondary" style="font-size:12px; padding:6px 14px;" onclick="openSongRequestModal()">📥 Request Lossless Track</button>
+                    </div>
+                    <div class="search-policy-banner">Best available result from the configured, authorized sources, ranked by verified audio quality.</div>
+                    <div id="search-results" class="track-grid">
+                        <p class="empty-state">Type something to search for music...</p>
+                    </div>
+                </div>
+
+                <!-- LIBRARY VIEW -->
+                <div id="view-library" class="view">
+                    <h2 class="section-title">❤️ Liked Songs</h2>
+                    <div id="liked-list" class="track-list">
+                        <p class="empty-state">Sign in to see your liked songs</p>
+                    </div>
+                </div>
+
+                <!-- PLAYLIST DETAIL VIEW -->
+                <div id="view-playlist" class="view">
+                    <div class="playlist-detail-header">
+                        <div id="playlist-cover" class="playlist-cover">🎵</div>
+                        <div class="playlist-info">
+                            <span class="playlist-label">PLAYLIST</span>
+                            <h1 id="playlist-name">Playlist</h1>
+                            <p id="playlist-desc" class="playlist-desc"></p>
+                            <div class="playlist-meta">
+                                <span id="playlist-track-count">0 tracks</span>
+                                <button id="playlist-play-all" class="button button-primary">▶ Play All</button>
+                                <button id="playlist-delete-btn" class="button button-secondary">Delete</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="playlist-tracks" class="track-list"></div>
+                </div>
+
+                <!-- UPLOADS VIEW -->
+                <div id="view-uploads" class="view">
+                    <h2 class="section-title">📁 My Uploads</h2>
+                    <div id="upload-zone" class="upload-zone glass-subtle">
+                        <div class="upload-zone-content">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                            <p>Drag & drop audio files here</p>
+                            <span>or</span>
+                            <label for="file-input" class="button button-secondary">Browse Files</label>
+                            <input type="file" id="file-input" accept=".mp3,.m4a,.wav,.ogg,.flac" multiple hidden>
+                            <small>Supported formats: MP3 · FLAC · WAV · M4A · AAC · OGG</small>
+                        </div>
+                    </div>
+                    <div id="upload-list" class="track-list"></div>
+                </div>
+                <!-- MULTI-ROOM SYNC VIEW -->
+                <div id="view-sync" class="view">
+                    <h2 class="section-title">📡 Multi-Room Sync</h2>
+                    
+                    <div id="sync-setup" class="glass-subtle" style="padding: 24px; border-radius: 12px; margin-bottom: 24px;">
+                        <h3>Device Name</h3>
+                        <input type="text" id="sync-device-name" placeholder="e.g. Living Room TV, Phone" class="search-input" style="width: 100%; max-width: 300px; margin: 12px 0;">
+                        
+                        <div style="display: flex; gap: 12px; margin-top: 16px;">
+                            <button id="btn-create-room" class="button button-primary">Create New Room</button>
+                        </div>
+                        
+                        <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 24px 0;">
+                        
+                        <h3>Join Existing Room</h3>
+                        <div style="display: flex; gap: 12px; margin-top: 12px;">
+                            <input type="text" id="sync-join-code" placeholder="6-Letter Code" class="search-input" style="width: 150px; text-transform: uppercase;">
+                            <button id="btn-join-room" class="button button-secondary">Join Room</button>
+                        </div>
+                    </div>
+
+                    <div id="sync-active-room" class="glass-subtle hidden" style="padding: 24px; border-radius: 12px;">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                            <div>
+                                <h3 style="color: var(--accent); margin-bottom: 8px;">CONNECTED TO ROOM</h3>
+                                <div style="font-size: 32px; font-weight: bold; letter-spacing: 2px;" id="sync-display-code">ABCDEF</div>
+                            </div>
+                            <button id="btn-leave-room" class="button button-secondary" style="background: rgba(255,0,0,0.1); color: #ff5555;">Leave Room</button>
+                        </div>
+
+                        <h4 style="margin-top: 32px; margin-bottom: 12px;">Connected Devices</h4>
+                        <ul id="sync-device-list" class="track-list" style="margin-bottom: 24px; display: block;">
+                            <!-- List injected by JS -->
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- TELEGRAM VAULT VIEW -->
+                <div id="view-telegram" class="view">
+                    <div class="vault-header">
+                        <div>
+                            <h2 class="section-title" style="margin-bottom:4px;">⚡ Telegram Vault &amp; Request System</h2>
+                            <p class="vault-subtitle">Authorized multi-source lossless music library (100,000+ files) · Checkpointed metadata indexing · On-demand retrieval</p>
+                            <div class="vault-policy-badge">Best available result from the configured, authorized sources, ranked by verified audio quality.</div>
+                        </div>
+                        <div class="vault-header-actions">
+                            <button id="btn-add-source" class="button button-primary" onclick="openAddSourceModal()">+ Add Source</button>
+                            <button id="btn-request-song-open" class="button button-secondary" onclick="openSongRequestModal()">📥 Request Song</button>
+                        </div>
+                    </div>
+
+                    <!-- Metrics Grid -->
+                    <div class="vault-metrics-grid">
+                        <div class="vault-metric-card glass-subtle">
+                            <div class="metric-title">CONFIGURED SOURCES</div>
+                            <div class="metric-value" id="vault-stat-sources">0</div>
+                            <div class="metric-desc">Priority-ordered channels</div>
+                        </div>
+                        <div class="vault-metric-card glass-subtle">
+                            <div class="metric-title">INDEXED AUDIO FILES</div>
+                            <div class="metric-value" id="vault-stat-indexed">0</div>
+                            <div class="metric-desc">Searchable metadata (Zero pre-download)</div>
+                        </div>
+                        <div class="vault-metric-card glass-subtle">
+                            <div class="metric-title">CACHED ON-DEMAND</div>
+                            <div class="metric-value" id="vault-stat-cached">0</div>
+                            <div class="metric-desc">Retrieved &amp; verified tracks</div>
+                        </div>
+                        <div class="vault-metric-card glass-subtle">
+                            <div class="metric-title">STORAGE USAGE</div>
+                            <div class="metric-value" id="vault-stat-storage">0.00 GB</div>
+                            <div class="metric-desc" id="vault-stat-limit">Max 25 GB · <a href="javascript:void(0)" onclick="cleanVaultCache()" style="color:var(--accent);text-decoration:underline;">Clean Cache</a></div>
+                        </div>
+                    </div>
+
+                    <!-- Vault Tabs: Sources | Request Queue -->
+                    <div class="vault-tabs">
+                        <button id="vault-tab-sources" class="vault-tab-btn active" onclick="switchVaultTab('sources')">Configured Sources</button>
+                        <button id="vault-tab-requests" class="vault-tab-btn" onclick="switchVaultTab('requests')">Request Queue <span id="vault-request-count" class="queue-badge">0</span></button>
+                    </div>
+
+                    <!-- Tab 1: Sources -->
+                    <div id="vault-view-sources" class="vault-tab-view active">
+                        <div class="vault-section-header">
+                            <h3>Authorized Telegram Channels &amp; Supergroups</h3>
+                            <button class="button button-secondary" style="font-size:12px; padding:4px 10px;" onclick="loadVaultSources()">↻ Refresh</button>
+                        </div>
+                        <div id="vault-sources-list" class="vault-sources-list">
+                            <div class="loader">Loading sources...</div>
+                        </div>
+                    </div>
+
+                    <!-- Tab 2: Request Queue -->
+                    <div id="vault-view-requests" class="vault-tab-view hidden">
+                        <div class="vault-section-header">
+                            <h3>Song Requests (Merged &amp; Evaluated in Priority Order)</h3>
+                            <div style="display:flex;gap:8px;">
+                                <button class="button button-primary" style="font-size:12px; padding:4px 12px;" onclick="processVaultQueue()">⚡ Process Queue</button>
+                                <button class="button button-secondary" style="font-size:12px; padding:4px 10px;" onclick="loadVaultRequests()">↻ Refresh</button>
+                            </div>
+                        </div>
+                        <div id="vault-requests-container" class="vault-requests-container">
+                            <div class="loader">Loading requests...</div>
+                        </div>
+                    </div>
+                </div>
+
+            </main>
+        </div>
+
+        <!-- 5. Player Bar (fixed bottom, glass-premium with prismatic) -->
+        <div id="player-bar" class="player-bar glass-premium" data-prism>
+            <div class="glass-inner-depth"></div>
+
+            <!-- Track Info -->
+            <div class="player-track-info" id="player-track-info" style="cursor: pointer;" title="Open Full Player">
+                <div id="player-cover" class="player-cover">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+                </div>
+                <div class="player-track-text">
+                    <span id="player-title" class="player-title">Not Playing</span>
+                    <span id="player-artist" class="player-artist">Select a track</span>
+                </div>
+                <button id="player-like-btn" class="player-like-btn" title="Like" onclick="event.stopPropagation();">♡</button>
+            </div>
+
+            <!-- Controls -->
+            <div class="player-controls">
+                <button id="shuffle-btn" class="player-ctrl-btn" title="Shuffle">⇄</button>
+                <button id="prev-btn" class="player-ctrl-btn" title="Previous">⏮</button>
+                <button id="play-btn" class="player-play-btn" title="Play">▶</button>
+                <button id="next-btn" class="player-ctrl-btn" title="Next">⏭</button>
+                <button id="repeat-btn" class="player-ctrl-btn" title="Repeat">↻</button>
+            </div>
+
+            <!-- Progress -->
+            <div class="player-progress">
+                <span id="current-time" class="player-time">0:00</span>
+                <div class="progress-bar-wrapper">
+                    <input type="range" id="progress-bar" class="progress-bar" min="0" max="100" value="0" step="0.1">
+                    <div id="progress-fill" class="progress-fill"></div>
+                </div>
+                <span id="total-time" class="player-time">0:00</span>
+            </div>
+
+            <!-- Volume & Queue -->
+            <div class="player-volume">
+                <button id="queue-btn" class="player-ctrl-btn" title="Queue (Up Next & Previous Songs)" aria-label="Open Queue">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="8" y1="6" x2="21" y2="6"></line>
+                        <line x1="8" y1="12" x2="21" y2="12"></line>
+                        <line x1="8" y1="18" x2="21" y2="18"></line>
+                        <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                        <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                        <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                    </svg>
+                </button>
+                <button id="volume-btn" class="player-ctrl-btn" title="Volume">🔊</button>
+                <div class="volume-bar-wrapper">
+                    <input type="range" id="volume-bar" class="volume-bar" min="0" max="100" value="80" step="1">
+                    <div id="volume-fill" class="volume-fill" style="width:80%"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- FULL-SCREEN PLAYER -->
+        <div id="fs-player" class="fs-player hidden" aria-hidden="true">
+            <!-- Dynamic Blurred Background -->
+            <div class="fs-dynamic-bg">
+                <div class="fs-ambient-color" id="fs-ambient-color-1"></div>
+                <div class="fs-ambient-color" id="fs-ambient-color-2"></div>
+                <div class="fs-atmospheric-blur"></div>
+            </div>
+
+            <!-- Top Controls -->
+            <div class="fs-top-bar">
+                <button id="fs-close-btn" class="fs-icon-btn" aria-label="Close full screen player">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+                </button>
+                <div class="fs-top-actions">
+                    <button id="fs-queue-btn" class="fs-icon-btn" aria-label="Toggle Queue" title="Queue">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                    </button>
+                    <button id="fs-options-btn" class="fs-icon-btn" aria-label="More options">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="fs-split-layout">
+                <!-- Left: Album Art & Controls -->
+                <div class="fs-col-left">
+                    <div class="fs-cover-wrapper" id="fs-cover-wrapper">
+                        <img id="fs-cover-image" src="" alt="Album Cover" crossorigin="anonymous">
+                    </div>
+
+                    <div class="fs-info-area">
+                        <h2 id="fs-title" class="fs-title">Not Playing</h2>
+                        <div class="fs-artist-row">
+                            <h3 id="fs-artist" class="fs-artist">Select a track</h3>
+                            <div id="fs-quality-badge-container"></div>
+                        </div>
+                    </div>
+
+                    <div class="fs-progress-area">
+                        <span id="fs-current-time" class="fs-time">0:00</span>
+                        <div class="progress-bar-wrapper fs-progress-wrapper">
+                            <input type="range" id="fs-progress-bar" class="progress-bar" min="0" max="100" value="0" step="0.1" aria-label="Seek progress">
+                            <div id="fs-progress-fill" class="progress-fill"></div>
+                        </div>
+                        <span id="fs-total-time" class="fs-time">0:00</span>
+                    </div>
+
+                    <div class="fs-controls-container">
+                        <div class="fs-controls-area">
+                            <button id="fs-shuffle-btn" class="fs-icon-btn" aria-label="Shuffle">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
+                            </button>
+                            <button id="fs-prev-btn" class="fs-ctrl-btn fs-ctrl-secondary" aria-label="Previous track">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+                            </button>
+                            <button id="fs-play-btn" class="fs-ctrl-btn fs-ctrl-primary" aria-label="Play/Pause">
+                                <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" id="fs-play-icon"><path d="M8 5v14l11-7z"/></svg>
+                            </button>
+                            <button id="fs-next-btn" class="fs-ctrl-btn fs-ctrl-secondary" aria-label="Next track">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+                            </button>
+                            <button id="fs-repeat-btn" class="fs-icon-btn" aria-label="Repeat">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                            </button>
+                        </div>
+                        <div class="fs-bottom-actions">
+                            <div class="fs-volume-area">
+                                <button id="fs-volume-btn" class="fs-icon-btn" aria-label="Mute">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                                </button>
+                                <div class="volume-bar-wrapper fs-volume-wrapper">
+                                    <input type="range" id="fs-volume-bar" class="volume-bar" min="0" max="100" value="80" step="1" aria-label="Volume">
+                                    <div id="fs-volume-fill" class="volume-fill" style="width:80%"></div>
+                                </div>
+                            </div>
+                            <button id="fs-lyrics-btn" class="fs-icon-btn fs-lyrics-toggle desktop-hide" aria-label="Toggle Lyrics">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Lyrics Panel -->
+                <div class="fs-col-right" id="fs-lyrics-panel">
+                    <div class="fs-lyrics-content">
+                        <h3 id="fs-lyrics-title" class="sr-only" style="display:none;">Lyrics</h3>
+                        <div id="fs-lyrics-container">
+                            <p class="fs-lyrics-placeholder">Lyrics not available for this track.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 5. Queue Drawer (Spotify/Apple Music style with Up Next & Previous Songs) -->
+        <div id="queue-drawer-backdrop" class="queue-drawer-backdrop hidden"></div>
+        <aside id="queue-drawer" class="queue-drawer glass-premium hidden" aria-label="Playback Queue">
+            <div class="queue-header">
+                <div class="queue-title-row">
+                    <div class="queue-header-title">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="8" y1="6" x2="21" y2="6"></line>
+                            <line x1="8" y1="12" x2="21" y2="12"></line>
+                            <line x1="8" y1="18" x2="21" y2="18"></line>
+                            <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                            <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                            <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                        </svg>
+                        <span>Queue</span>
+                    </div>
+                    <button id="queue-close-btn" class="queue-close-btn" aria-label="Close Queue">✕</button>
+                </div>
+                <div class="queue-tabs">
+                    <button id="queue-tab-upnext" class="queue-tab-btn active" onclick="switchQueueTab('upnext')">
+                        Up Next <span id="queue-upnext-count" class="queue-badge">0</span>
+                    </button>
+                    <button id="queue-tab-history" class="queue-tab-btn" onclick="switchQueueTab('history')">
+                        Previous Songs <span id="queue-history-count" class="queue-badge">0</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Queue Content Body -->
+            <div class="queue-body">
+                <!-- Now Playing Card -->
+                <div class="queue-section queue-now-playing-section">
+                    <div class="queue-section-header">
+                        <span class="queue-section-label">NOW PLAYING</span>
+                    </div>
+                    <div id="queue-now-playing-card" class="queue-now-card glass-subtle">
+                        <div class="queue-now-cover-wrap">
+                            <img id="queue-now-cover" src="" alt="" onerror="this.style.opacity='0.2'">
+                            <div id="queue-eq-bars" class="queue-now-eq-bars">
+                                <span></span><span></span><span></span><span></span>
+                            </div>
+                        </div>
+                        <div class="queue-now-info">
+                            <span id="queue-now-title" class="queue-now-title">Not Playing</span>
+                            <span id="queue-now-artist" class="queue-now-artist">Select a track</span>
+                            <div id="queue-now-badge" class="queue-now-badge"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 1: Up Next -->
+                <div id="queue-view-upnext" class="queue-tab-view active">
+                    <div class="queue-section-header">
+                        <span class="queue-section-label">NEXT IN QUEUE</span>
+                        <button id="queue-clear-btn" class="queue-action-link" onclick="clearQueue()">Clear Queue</button>
+                    </div>
+                    <div id="queue-upnext-list" class="queue-track-list">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <!-- Tab 2: Previous Songs (History) -->
+                <div id="queue-view-history" class="queue-tab-view hidden">
+                    <div class="queue-section-header">
+                        <span class="queue-section-label">PREVIOUSLY PLAYED</span>
+                        <button id="queue-clear-history-btn" class="queue-action-link" onclick="clearPreviousTracks()">Clear History</button>
+                    </div>
+                    <div id="queue-history-list" class="queue-track-list">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- 6. Auth Modal -->
+        <div id="auth-modal" class="modal-overlay hidden">
+            <div class="modal glass-floating">
+                <button class="modal-close" id="auth-modal-close">✕</button>
+                <h2 id="auth-modal-title">Sign In</h2>
+                <form id="auth-form">
+                    <div id="signup-fields" class="hidden">
+                        <div class="form-group">
+                            <label for="auth-username">Username</label>
+                            <input type="text" id="auth-username" placeholder="Choose a username" class="form-input">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="auth-email">Email</label>
+                        <input type="email" id="auth-email" placeholder="your@email.com" class="form-input" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="auth-password">Password</label>
+                        <input type="password" id="auth-password" placeholder="Password" class="form-input" required>
+                    </div>
+                    <p id="auth-error" class="auth-error hidden"></p>
+                    <button type="submit" id="auth-submit" class="button button-primary" style="width:100%">Sign In</button>
+                </form>
+                <p class="auth-switch">
+                    <span id="auth-switch-text">Don't have an account?</span>
+                    <button id="auth-switch-btn" type="button" class="auth-switch-link">Sign Up</button>
+                </p>
+            </div>
+        </div>
+
+        <!-- 7. Create Playlist Modal -->
+        <div id="playlist-modal" class="modal-overlay hidden">
+            <div class="modal glass-floating">
+                <button class="modal-close" id="playlist-modal-close">✕</button>
+                <h2>Create Playlist</h2>
+                <form id="playlist-form">
+                    <div class="form-group">
+                        <label for="playlist-name-input">Name</label>
+                        <input type="text" id="playlist-name-input" placeholder="My Awesome Playlist" class="form-input" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="playlist-desc-input">Description</label>
+                        <textarea id="playlist-desc-input" placeholder="Add a description..." class="form-input form-textarea"></textarea>
+                    </div>
+                    <button type="submit" class="button button-primary" style="width:100%">Create</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- 8. Add-to-Playlist Context Menu -->
+        <div id="context-menu" class="context-menu glass-floating hidden">
+            <div class="context-menu-header">Add to Playlist</div>
+            <ul id="context-menu-playlists"></ul>
+        </div>
+
+        <!-- TELEGRAM ADD SOURCE MODAL -->
+        <div id="source-modal" class="modal-overlay hidden">
+            <div class="modal glass-floating">
+                <button class="modal-close" onclick="closeAddSourceModal()">✕</button>
+                <h2>Configure Telegram Source</h2>
+                <form id="source-form" onsubmit="handleAddSourceSubmit(event)">
+                    <div class="form-group">
+                        <label for="source-name-input">Source Name</label>
+                        <input type="text" id="source-name-input" placeholder="e.g. Master Tamil Lossless" class="form-input" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="source-chat-input">Chat / Channel ID</label>
+                        <input type="text" id="source-chat-input" placeholder="e.g. -1001928374650" class="form-input" required>
+                        <small style="color:var(--text-tertiary); font-size:11px;">Numeric supergroup/channel ID starting with -100</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="source-username-input">Channel Username (Optional)</label>
+                        <input type="text" id="source-username-input" placeholder="e.g. @MyMusicChannel" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label for="source-priority-input">Lookup Priority</label>
+                        <input type="number" id="source-priority-input" value="1" min="1" max="100" class="form-input" required>
+                        <small style="color:var(--text-tertiary); font-size:11px;">Lower number = higher lookup priority (1 evaluated first)</small>
+                    </div>
+                    <button type="submit" class="button button-primary" style="width:100%">Save Source</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- TELEGRAM SONG REQUEST MODAL -->
+        <div id="request-song-modal" class="modal-overlay hidden">
+            <div class="modal glass-floating">
+                <button class="modal-close" onclick="closeSongRequestModal()">✕</button>
+                <h2>Request Lossless Audio</h2>
+                <p style="color:var(--text-secondary); font-size:13px; margin-bottom:16px;">
+                    Submit a song request to evaluate across authorized lossless Telegram vaults. Duplicate requests automatically increase priority!
+                </p>
+                <form id="request-song-form" onsubmit="handleSongRequestSubmit(event)">
+                    <div class="form-group">
+                        <label for="request-query-input">Song Title / Artist / Movie</label>
+                        <input type="text" id="request-query-input" placeholder="e.g. Munbe Vaa or முன்பே வா" class="form-input" required>
+                        <small style="color:var(--text-tertiary); font-size:11px;">Tamil and English queries are phonetically matched.</small>
+                    </div>
+                    <button type="submit" class="button button-primary" style="width:100%">Submit Request</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- 9. Toast Notifications -->
+        <div id="toast-container" class="toast-container"></div>
+
+        <!-- 10. YouTube Audio Player Container (Hidden but compliant dimensions) -->
+        <div id="yt-player-container" style="position: absolute; top: -9999px; left: -9999px; width: 250px; height: 250px; overflow: hidden; pointer-events: none; opacity: 0.01;">
+            <div id="yt-player"></div>
+        </div>
+
+    </div><!-- end #app -->
+
+    <!-- 11. Script Links -->
+    <script src="youtubePlayer.js"></script>
+    <script src="syncManager.js"></script>
+    <script src="playbackManager.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

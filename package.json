@@ -1,0 +1,27 @@
+{
+  "name": "basa",
+  "version": "1.0.0",
+  "description": "BASA - Premium Music Streaming Platform",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "@distube/ytdl-core": "^4.16.12",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "music-metadata": "^11.15.0",
+    "play-dl": "^1.9.7",
+    "sql.js": "^1.11.0",
+    "telegram": "^2.26.22",
+    "uuid": "^11.0.0",
+    "ws": "^8.21.3",
+    "youtube-dl-exec": "^3.1.12",
+    "yt-search": "^2.13.1"
+  }
+}
