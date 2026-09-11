@@ -355,7 +355,7 @@ class TelegramSourceManager {
                                 id, source_id, chat_id, message_id, file_id, file_name,
                                 title, artist, album, duration, file_size, mime_type,
                                 format, quality
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Telegram Vault', ?, ?, ?, ?, ?)
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Studio Master', ?, ?, ?, ?, ?)
                             ON CONFLICT(source_id, message_id) DO UPDATE SET
                                 file_name = excluded.file_name,
                                 title = excluded.title,

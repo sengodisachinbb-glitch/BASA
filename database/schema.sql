@@ -72,33 +72,6 @@ CREATE TABLE IF NOT EXISTS uploaded_tracks (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- Internet Archive Tracks Cache
-CREATE TABLE IF NOT EXISTS archive_tracks_cache (
-    id TEXT PRIMARY KEY,
-    archive_identifier TEXT NOT NULL,
-    filename TEXT NOT NULL,
-    title TEXT NOT NULL,
-    artist TEXT DEFAULT 'Unknown Artist',
-    album TEXT DEFAULT 'Unknown Album',
-    genre TEXT DEFAULT NULL,
-    duration INTEGER DEFAULT 0,
-    format TEXT DEFAULT NULL,
-    codec TEXT DEFAULT NULL,
-    quality TEXT DEFAULT 'UNKNOWN',
-    sample_rate INTEGER DEFAULT NULL,
-    bit_depth INTEGER DEFAULT NULL,
-    bitrate INTEGER DEFAULT NULL,
-    audio_url TEXT NOT NULL,
-    fallback_url TEXT DEFAULT NULL,
-    cover_url TEXT DEFAULT NULL,
-    license TEXT DEFAULT NULL,
-    license_url TEXT DEFAULT NULL,
-    rights_status TEXT DEFAULT 'UNVERIFIED',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(archive_identifier, filename)
-);
-
 -- Telegram Configured Sources
 CREATE TABLE IF NOT EXISTS telegram_sources (
     id TEXT PRIMARY KEY,
@@ -196,8 +169,6 @@ CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist ON playlist_tracks(playl
 CREATE INDEX IF NOT EXISTS idx_liked_tracks_user ON liked_tracks(user_id);
 CREATE INDEX IF NOT EXISTS idx_play_history_user ON play_history(user_id, played_at DESC);
 CREATE INDEX IF NOT EXISTS idx_uploaded_tracks_user ON uploaded_tracks(user_id);
-CREATE INDEX IF NOT EXISTS idx_archive_tracks_identifier ON archive_tracks_cache(archive_identifier);
-CREATE INDEX IF NOT EXISTS idx_archive_tracks_quality ON archive_tracks_cache(quality);
 CREATE INDEX IF NOT EXISTS idx_telegram_sources_enabled ON telegram_sources(enabled, priority ASC);
 CREATE INDEX IF NOT EXISTS idx_telegram_lib_title ON telegram_library_index(title);
 CREATE INDEX IF NOT EXISTS idx_telegram_lib_artist ON telegram_library_index(artist);

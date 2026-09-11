@@ -78,9 +78,9 @@
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
                         Sync Devices
                     </a>
-                    <a href="#telegram" class="sidebar-link" data-view="telegram" id="nav-telegram-btn">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
-                        Telegram Vault
+                    <a href="#lossless" class="sidebar-link" data-view="telegram" id="nav-telegram-btn">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                        Lossless Studio
                     </a>
                 </nav>
                 <div class="sidebar-divider"></div>
@@ -123,9 +123,9 @@
                 <div id="view-search" class="view">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
                         <h2 class="section-title" style="margin-bottom:0;">Search Results</h2>
-                        <button id="search-request-btn" class="button button-secondary" style="font-size:12px; padding:6px 14px;" onclick="openSongRequestModal()">📥 Request Lossless Track</button>
+                        <button id="search-request-btn" class="button button-secondary" style="font-size:12px; padding:6px 14px;" onclick="openSongRequestModal()">✨ Request Studio Master</button>
                     </div>
-                    <div class="search-policy-banner">Best available result from the configured, authorized sources, ranked by verified audio quality.</div>
+                    <div class="search-policy-banner">💎 Hi-Res Lossless &amp; Studio Audio enabled · Ranked by highest verified audio quality.</div>
                     <div id="search-results" class="track-grid">
                         <p class="empty-state">Type something to search for music...</p>
                     </div>
@@ -209,36 +209,36 @@
                     </div>
                 </div>
 
-                <!-- TELEGRAM VAULT VIEW -->
+                <!-- LOSSLESS STUDIO VIEW -->
                 <div id="view-telegram" class="view">
                     <div class="vault-header">
                         <div>
-                            <h2 class="section-title" style="margin-bottom:4px;">⚡ Telegram Vault &amp; Request System</h2>
-                            <p class="vault-subtitle">Authorized multi-source lossless music library (100,000+ files) · Checkpointed metadata indexing · On-demand retrieval</p>
-                            <div class="vault-policy-badge">Best available result from the configured, authorized sources, ranked by verified audio quality.</div>
+                            <h2 class="section-title" style="margin-bottom:4px;">💎 Lossless Studio &amp; Hi-Res Audio</h2>
+                            <p class="vault-subtitle">Native Lossless &amp; Hi-Res Audio (24-bit / 96 kHz FLAC) · Intelligent stream caching &amp; automated ingestion</p>
+                            <div class="vault-policy-badge">Studio Master quality enabled · Auto-ranked by verified sample rate &amp; bit-depth.</div>
                         </div>
                         <div class="vault-header-actions">
                             <button id="btn-add-source" class="button button-primary" onclick="openAddSourceModal()">+ Add Source</button>
-                            <button id="btn-request-song-open" class="button button-secondary" onclick="openSongRequestModal()">📥 Request Song</button>
+                            <button id="btn-request-song-open" class="button button-secondary" onclick="openSongRequestModal()">✨ Request Master</button>
                         </div>
                     </div>
 
                     <!-- Metrics Grid -->
                     <div class="vault-metrics-grid">
                         <div class="vault-metric-card glass-subtle">
-                            <div class="metric-title">CONFIGURED SOURCES</div>
+                            <div class="metric-title">LOSSLESS SOURCES</div>
                             <div class="metric-value" id="vault-stat-sources">0</div>
-                            <div class="metric-desc">Priority-ordered channels</div>
+                            <div class="metric-desc">Connected feeds</div>
                         </div>
                         <div class="vault-metric-card glass-subtle">
-                            <div class="metric-title">INDEXED AUDIO FILES</div>
+                            <div class="metric-title">INDEXED TRACKS</div>
                             <div class="metric-value" id="vault-stat-indexed">0</div>
-                            <div class="metric-desc">Searchable metadata (Zero pre-download)</div>
+                            <div class="metric-desc">Available for instant streaming</div>
                         </div>
                         <div class="vault-metric-card glass-subtle">
-                            <div class="metric-title">CACHED ON-DEMAND</div>
+                            <div class="metric-title">CACHED LOCALLY</div>
                             <div class="metric-value" id="vault-stat-cached">0</div>
-                            <div class="metric-desc">Retrieved &amp; verified tracks</div>
+                            <div class="metric-desc">Verified lossless streams</div>
                         </div>
                         <div class="vault-metric-card glass-subtle">
                             <div class="metric-title">STORAGE USAGE</div>
@@ -249,14 +249,14 @@
 
                     <!-- Vault Tabs: Sources | Request Queue -->
                     <div class="vault-tabs">
-                        <button id="vault-tab-sources" class="vault-tab-btn active" onclick="switchVaultTab('sources')">Configured Sources</button>
-                        <button id="vault-tab-requests" class="vault-tab-btn" onclick="switchVaultTab('requests')">Request Queue <span id="vault-request-count" class="queue-badge">0</span></button>
+                        <button id="vault-tab-sources" class="vault-tab-btn active" onclick="switchVaultTab('sources')">Connected Audio Sources</button>
+                        <button id="vault-tab-requests" class="vault-tab-btn" onclick="switchVaultTab('requests')">Master Request Queue <span id="vault-request-count" class="queue-badge">0</span></button>
                     </div>
 
                     <!-- Tab 1: Sources -->
                     <div id="vault-view-sources" class="vault-tab-view active">
                         <div class="vault-section-header">
-                            <h3>Authorized Telegram Channels &amp; Supergroups</h3>
+                            <h3>Connected Audio Feeds</h3>
                             <button class="button button-secondary" style="font-size:12px; padding:4px 10px;" onclick="loadVaultSources()">↻ Refresh</button>
                         </div>
                         <div id="vault-sources-list" class="vault-sources-list">
@@ -561,20 +561,20 @@
             <ul id="context-menu-playlists"></ul>
         </div>
 
-        <!-- TELEGRAM ADD SOURCE MODAL -->
+        <!-- STUDIO ADD SOURCE MODAL -->
         <div id="source-modal" class="modal-overlay hidden">
             <div class="modal glass-floating">
                 <button class="modal-close" onclick="closeAddSourceModal()">✕</button>
-                <h2>Configure Telegram Source</h2>
+                <h2>Configure Lossless Audio Source</h2>
                 <form id="source-form" onsubmit="handleAddSourceSubmit(event)">
                     <div class="form-group">
                         <label for="source-name-input">Source Name</label>
                         <input type="text" id="source-name-input" placeholder="e.g. Master Tamil Lossless" class="form-input" required>
                     </div>
                     <div class="form-group">
-                        <label for="source-chat-input">Chat / Channel ID</label>
+                        <label for="source-chat-input">Channel / Feed ID</label>
                         <input type="text" id="source-chat-input" placeholder="e.g. -1001928374650" class="form-input" required>
-                        <small style="color:var(--text-tertiary); font-size:11px;">Numeric supergroup/channel ID starting with -100</small>
+                        <small style="color:var(--text-tertiary); font-size:11px;">Backend lossless feed identifier</small>
                     </div>
                     <div class="form-group">
                         <label for="source-username-input">Channel Username (Optional)</label>
@@ -590,21 +590,21 @@
             </div>
         </div>
 
-        <!-- TELEGRAM SONG REQUEST MODAL -->
+        <!-- STUDIO SONG REQUEST MODAL -->
         <div id="request-song-modal" class="modal-overlay hidden">
             <div class="modal glass-floating">
                 <button class="modal-close" onclick="closeSongRequestModal()">✕</button>
-                <h2>Request Lossless Audio</h2>
+                <h2>Request Lossless Master</h2>
                 <p style="color:var(--text-secondary); font-size:13px; margin-bottom:16px;">
-                    Submit a song request to evaluate across authorized lossless Telegram vaults. Duplicate requests automatically increase priority!
+                    Can't find a Hi-Res Master? Submit a song request to queue automated lossless retrieval. Duplicate requests automatically increase priority!
                 </p>
                 <form id="request-song-form" onsubmit="handleSongRequestSubmit(event)">
                     <div class="form-group">
                         <label for="request-query-input">Song Title / Artist / Movie</label>
                         <input type="text" id="request-query-input" placeholder="e.g. Munbe Vaa or முன்பே வா" class="form-input" required>
-                        <small style="color:var(--text-tertiary); font-size:11px;">Tamil and English queries are phonetically matched.</small>
+                        <small style="color:var(--text-tertiary); font-size:11px;">Phonetic and multilingually matched across lossless sources.</small>
                     </div>
-                    <button type="submit" class="button button-primary" style="width:100%">Submit Request</button>
+                    <button type="submit" class="button button-primary" style="width:100%">Submit Master Request</button>
                 </form>
             </div>
         </div>

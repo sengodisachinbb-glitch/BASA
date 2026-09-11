@@ -85,7 +85,7 @@ class TelegramRequestWorker {
         const processed = await this.evaluateSingleRequest(db, saveDb, id);
         return {
             merged: false,
-            message: 'Song request submitted successfully to Telegram Vault queue.',
+            message: 'Song request submitted to Hi-Res lossless queue.',
             request: this._formatRequest(processed)
         };
     }

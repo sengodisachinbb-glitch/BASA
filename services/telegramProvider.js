@@ -201,13 +201,11 @@ class TelegramProvider {
      * Queries the local telegram_library_index joined with telegram_sources.
      * Instant, fast, zero network blocking, completely resilient to Telegram network drops.
      */
-    searchTracks(query, options = {}) {
+    searchTracks(query = '', options = {}) {
         const { limit = 25, db = null } = options;
-        if (!db || !query || !query.trim()) return [];
+        if (!db) return [];
 
-        const cleanQuery = query.trim();
-        const variations = this.getSearchVariations(cleanQuery);
-        const terms = variations[0].split(' ').filter(t => t.length > 1);
+        const cleanQuery = (query || '').trim();
 
         try {
             // Build local SQL search with priority ranking
@@ -233,29 +231,37 @@ class TelegramProvider {
             `;
 
             const params = [];
-            const conditions = [];
 
-            // Add conditions for search terms
-            for (const v of variations) {
-                conditions.push(`(
-                    LOWER(idx.title) LIKE ? OR 
-                    LOWER(idx.artist) LIKE ? OR 
-                    LOWER(idx.file_name) LIKE ? OR
-                    LOWER(idx.album) LIKE ?
-                )`);
-                params.push(`%${v}%`, `%${v}%`, `%${v}%`, `%${v}%`);
-            }
+            if (!cleanQuery) {
+                // Browse mode: return top ranked lossless/studio audio
+                sql += ` AND (idx.quality IN ('HI_RES_LOSSLESS', 'LOSSLESS') OR idx.format IN ('FLAC', 'WAV', 'flac', 'wav'))`;
+            } else {
+                const variations = this.getSearchVariations(cleanQuery);
+                const terms = variations[0].split(' ').filter(t => t.length > 1);
+                const conditions = [];
 
-            if (terms.length > 0) {
-                const termConditions = terms.map(term => {
-                    params.push(`%${term}%`, `%${term}%`, `%${term}%`);
-                    return `(LOWER(idx.title) LIKE ? OR LOWER(idx.artist) LIKE ? OR LOWER(idx.file_name) LIKE ?)`;
-                });
-                conditions.push(`(${termConditions.join(' AND ')})`);
-            }
+                // Add conditions for search terms
+                for (const v of variations) {
+                    conditions.push(`(
+                        LOWER(idx.title) LIKE ? OR 
+                        LOWER(idx.artist) LIKE ? OR 
+                        LOWER(idx.file_name) LIKE ? OR
+                        LOWER(idx.album) LIKE ?
+                    )`);
+                    params.push(`%${v}%`, `%${v}%`, `%${v}%`, `%${v}%`);
+                }
 
-            if (conditions.length > 0) {
-                sql += ` AND (${conditions.join(' OR ')})`;
+                if (terms.length > 0) {
+                    const termConditions = terms.map(term => {
+                        params.push(`%${term}%`, `%${term}%`, `%${term}%`);
+                        return `(LOWER(idx.title) LIKE ? OR LOWER(idx.artist) LIKE ? OR LOWER(idx.file_name) LIKE ?)`;
+                    });
+                    conditions.push(`(${termConditions.join(' AND ')})`);
+                }
+
+                if (conditions.length > 0) {
+                    sql += ` AND (${conditions.join(' OR ')})`;
+                }
             }
 
             // Order by:
@@ -307,7 +313,7 @@ class TelegramProvider {
             id,
             source: 'telegram',
             sourceId: row.source_id,
-            sourceName: row.source_name || 'Telegram Vault',
+            sourceName: row.source_name || 'Studio Master',
             sourcePriority: row.source_priority || 1,
             chatId: row.chat_id,
             messageId: row.message_id,
@@ -315,7 +321,7 @@ class TelegramProvider {
             fileName: row.file_name,
             title: row.title || 'Unknown Title',
             artist: row.artist || 'Unknown Artist',
-            album: row.album || 'Telegram Vault',
+            album: row.album || 'Studio Master',
             duration: row.duration || 0,
             fileSize: row.file_size || 0,
             format: row.verified_codec || row.format || 'FLAC',
@@ -333,11 +339,9 @@ class TelegramProvider {
             status,
             isCached,
             retrievalProgress: this.retrievalProgress.get(id) || null,
-            // User wording requirement:
-            // "Best available result from the configured, authorized sources, ranked by verified audio quality."
-            qualityRankBadge: isLossless ? 'Lossless Audio (Authorized Vault)' : 'High Quality Audio',
-            sourceLabel: `Telegram Vault (${row.source_name || 'Authorized Source'})`,
-            rightsStatus: 'AUTHORIZED_VAULT'
+            qualityRankBadge: isLossless ? 'Hi-Res Lossless' : 'High Quality Audio',
+            sourceLabel: isLossless ? 'Hi-Res Lossless' : 'Studio Quality',
+            rightsStatus: 'STUDIO_MASTER'
         };
     }
 
@@ -536,7 +540,7 @@ class TelegramProvider {
 
             const title = commonInfo.title || indexRecord.title || 'Unknown Title';
             const artist = commonInfo.artist || indexRecord.artist || 'Unknown Artist';
-            const album = commonInfo.album || indexRecord.album || 'Telegram Vault';
+            const album = commonInfo.album || indexRecord.album || 'Studio Master';
             const year = commonInfo.year || indexRecord.year || null;
 
             // Insert or update into telegram_tracks
@@ -597,7 +601,7 @@ class TelegramProvider {
             fileName: row.original_file_name,
             title: row.title || 'Unknown Title',
             artist: row.artist || 'Unknown Artist',
-            album: row.album || 'Telegram Vault',
+            album: row.album || 'Studio Master',
             year: row.year || null,
             duration: row.duration || 0,
             fileSize: row.file_size || 0,
@@ -616,9 +620,9 @@ class TelegramProvider {
             audioUrl: streamUrl,
             status: 'READY',
             isCached: true,
-            qualityRankBadge: isLossless ? 'Lossless Audio (Authorized Vault)' : 'High Quality Audio',
-            sourceLabel: 'Telegram Vault',
-            rightsStatus: 'AUTHORIZED_VAULT'
+            qualityRankBadge: isLossless ? 'Hi-Res Lossless' : 'High Quality Audio',
+            sourceLabel: isLossless ? 'Hi-Res Lossless' : 'Studio Quality',
+            rightsStatus: 'STUDIO_MASTER'
         };
     }
 

@@ -100,7 +100,7 @@ class PlaybackManager {
     }
     
     isHtml5Provider() {
-        return this.provider === 'local' || this.provider === 'archive' || this.provider === 'telegram';
+        return this.provider === 'local' || this.provider === 'telegram' || this.provider === 'lossless';
     }
 
     setupHTML5Audio() {
@@ -127,14 +127,6 @@ class PlaybackManager {
         
         this.audio.addEventListener('error', (e) => {
             if (this.isHtml5Provider()) {
-                // For Internet Archive, attempt derivative MP3 fallback if available
-                if (this.provider === 'archive' && this.currentTrack?.fallbackUrl && this.audio.src !== this.currentTrack.fallbackUrl) {
-                    console.log('[PlaybackManager] Primary lossless stream error, falling back to derivative audio URL...');
-                    this.audio.src = this.currentTrack.fallbackUrl;
-                    this.audio.load();
-                    this.play();
-                    return;
-                }
 
                 if (this.onError) {
                     const err = this.audio.error;
@@ -206,16 +198,16 @@ class PlaybackManager {
         console.log(`[PlaybackManager] Loading track:`, trackData.title, `[Source: ${source}]`);
         
         // Route to appropriate provider
-        if (source === 'telegram') {
-            console.log(`[PlaybackManager] Provider: Telegram Ingest (BASA Vault)`);
-            this.provider = 'telegram';
+        if (source === 'telegram' || source === 'lossless') {
+            console.log(`[PlaybackManager] Provider: Lossless Studio Audio`);
+            this.provider = 'lossless';
             const streamUrl = trackData.audioUrl || previewUrl || `/api/telegram/stream/${trackData.id}`;
 
             // Check if track is cached or needs on-demand preparation
             if (trackData.status === 'MISSING' || trackData.isCached === false) {
                 console.log(`[PlaybackManager] Track is not cached. Triggering on-demand retrieval for: ${trackData.title}`);
                 if (typeof showToast === 'function') {
-                    showToast(`⚡ Retrieving lossless track "${trackData.title}" from Telegram Vault...`, 'info');
+                    showToast(`✨ Optimizing Hi-Res Lossless stream for "${trackData.title}"...`, 'info');
                 }
                 
                 // Call prepare endpoint
@@ -237,14 +229,14 @@ class PlaybackManager {
                                         if (pRes.status === 'READY') {
                                             clearInterval(pollInterval);
                                             if (typeof showToast === 'function') {
-                                                showToast(`🎵 Lossless audio ready! Playing now.`, 'success');
+                                                showToast(`💎 Hi-Res Lossless Ready · Playing Master Quality`, 'success');
                                             }
                                             this.audio.src = streamUrl;
                                             this.audio.load();
                                             this.play();
                                         } else if (attempts > 60) {
                                             clearInterval(pollInterval);
-                                            if (this.onError) this.onError('Retrieval timed out. Please try again.');
+                                            if (this.onError) this.onError('Lossless stream timed out. Please try again.');
                                         }
                                     })
                                     .catch(() => {
@@ -255,18 +247,11 @@ class PlaybackManager {
                     })
                     .catch(err => {
                         console.error('[PlaybackManager] Prepare failed:', err);
-                        if (this.onError) this.onError('Failed to retrieve track from Telegram Vault: ' + err.message);
+                        if (this.onError) this.onError('Failed to load Hi-Res Lossless stream: ' + err.message);
                     });
                 return;
             }
 
-            this.audio.src = streamUrl;
-            this.audio.load();
-            this.play();
-        } else if (source === 'archive') {
-            console.log(`[PlaybackManager] Provider: Internet Archive Lossless`);
-            this.provider = 'archive';
-            const streamUrl = trackData.audioUrl || previewUrl;
             this.audio.src = streamUrl;
             this.audio.load();
             this.play();

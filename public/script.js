@@ -130,7 +130,7 @@ function setupRouter() {
             loadUploads();
         } else if (hash === '#sync') {
             showView('view-sync');
-        } else if (hash === '#telegram') {
+        } else if (hash === '#telegram' || hash === '#lossless') {
             showView('view-telegram');
             loadTelegramVault();
         } else if (hash.startsWith('#playlist/')) {
@@ -430,7 +430,7 @@ async function loadHome() {
                 window.currentLosslessTracks = tracks;
                 losslessGrid.innerHTML = tracks.map((t, idx) => renderTrackCard(t, t.source, idx, 'lossless')).join('');
             } else {
-                losslessGrid.innerHTML = '<div class="empty-state">No lossless tracks available yet. Search Internet Archive or sync Telegram audio.</div>';
+                losslessGrid.innerHTML = '<div class="empty-state">No lossless tracks available yet. Submit a request to ingest master audio.</div>';
             }
         } catch (e) {
             console.error('Lossless loading error', e);
@@ -467,21 +467,13 @@ function mapTrackToStandard(track, source = 'youtube') {
         artist = track.artist || 'Unknown Artist';
         preview = track.preview || `/api/upload/stream/${track.id}?token=${state.token || ''}`;
         audioUrl = preview;
-    } else if (effectiveSource === 'telegram') {
+    } else if (effectiveSource === 'telegram' || effectiveSource === 'lossless') {
         id = track.id;
         cover = track.cover || track.cover_url || `/api/telegram/cover/${track.id}`;
         title = track.title || 'Unknown Title';
         artist = track.artist || 'Unknown Artist';
         preview = track.preview || track.audioUrl || `/api/telegram/stream/${track.id}`;
         audioUrl = `/api/telegram/stream/${track.id}`;
-    } else if (effectiveSource === 'archive') {
-        id = track.id || track.sourceId || track.archive_identifier;
-        cover = track.cover || track.cover_url || (track.archive_identifier ? `https://archive.org/services/img/${track.archive_identifier}` : '');
-        title = track.title || 'Unknown Title';
-        artist = track.artist || 'Internet Archive';
-        preview = track.preview || track.audioUrl || track.audio_url || '';
-        audioUrl = track.audioUrl || track.audio_url || preview;
-        fallbackUrl = track.fallbackUrl || track.fallback_url || null;
     } else {
         id = track.id || track.videoId;
         cover = track.cover || track.artwork?.['480x480'] || track.artwork?.['150x150'] || track.artwork || '';
@@ -494,7 +486,7 @@ function mapTrackToStandard(track, source = 'youtube') {
     return { 
         id, title, artist, album: track.album?.title || track.album || '', cover, preview,
         audioUrl, fallbackUrl, source: effectiveSource,
-        sourceId: track.sourceId || track.archive_identifier || id,
+        sourceId: track.sourceId || id,
         quality: track.quality, format: track.format, codec: track.codec, lossless: track.lossless,
         sampleRate: track.sampleRate || track.sample_rate, 
         bitDepth: track.bitDepth || track.bit_depth, 
@@ -540,59 +532,34 @@ function renderTrackCard(track, source = 'youtube', index = -1, contextType = ''
 
 function renderQualityBadge(track) {
     if (!track) return '';
-    let badgeText = '';
-    let badgeClass = 'badge-standard';
-    
-    if (track.source === 'youtube') {
-        badgeText = 'YouTube · SOURCE DEPENDENT';
-    } else if (track.source === 'archive') {
-        const formatStr = track.format ? track.format.toUpperCase() : 'FLAC';
-        const spec = (track.bitDepth && track.sampleRate) ? ` · ${track.bitDepth}-bit / ${Math.round(track.sampleRate / 1000)} kHz` : '';
-        if (track.quality === 'HI_RES_LOSSLESS') {
-            badgeText = `HI-RES LOSSLESS · ${formatStr}${spec} · CC LICENSE`;
-            badgeClass = 'badge-gold';
-        } else {
-            badgeText = `LOSSLESS · ${formatStr}${spec} · CC LICENSE`;
-            badgeClass = 'badge-gold';
-        }
-    } else if (track.source === 'telegram') {
-        const formatStr = track.format ? track.format.toUpperCase() : 'AUDIO';
-        const spec = (track.bitDepth && track.sampleRate) ? ` · ${track.bitDepth}-bit / ${Math.round(track.sampleRate / 1000)} kHz` : '';
-        const cacheTag = track.isCached ? ' · READY' : ' · ON-DEMAND';
-        if (track.quality === 'HI_RES_LOSSLESS') {
-            badgeText = `HI-RES LOSSLESS · ${formatStr}${spec} · TELEGRAM VAULT${cacheTag}`;
-            badgeClass = 'badge-gold';
-        } else if (track.quality === 'LOSSLESS') {
-            badgeText = `LOSSLESS · ${formatStr}${spec} · TELEGRAM VAULT${cacheTag}`;
-            badgeClass = 'badge-gold';
-        } else if (track.quality === 'HIGH' && track.bitrate) {
-            badgeText = `${formatStr} · ${Math.round(track.bitrate / 1000)} kbps · TELEGRAM VAULT${cacheTag}`;
-            badgeClass = 'badge-standard';
-        } else {
-            badgeText = `${formatStr} · TELEGRAM VAULT${cacheTag}`;
-            badgeClass = 'badge-standard';
-        }
-    } else {
-        const formatStr = track.format ? track.format.toUpperCase() : 'UNKNOWN';
-        if (track.quality === 'HI_RES_LOSSLESS') {
-            const spec = (track.bitDepth && track.sampleRate) ? ` · ${track.bitDepth}-bit / ${Math.round(track.sampleRate / 1000)} kHz` : '';
-            badgeText = `${formatStr} · HI-RES LOSSLESS${spec}`;
-            badgeClass = 'badge-gold';
-        } else if (track.quality === 'LOSSLESS') {
-            const spec = (track.bitDepth && track.sampleRate) ? ` · ${track.bitDepth}-bit / ${Math.round(track.sampleRate / 1000)} kHz` : '';
-            badgeText = `${formatStr} · LOSSLESS${spec}`;
-            badgeClass = 'badge-gold';
-        } else if (track.quality === 'HIGH' && track.bitrate) {
-            badgeText = `${formatStr} · ${Math.round(track.bitrate / 1000)} kbps`;
-        } else if (track.quality && track.quality !== 'UNKNOWN') {
-            badgeText = `${formatStr} · ${track.quality}`;
-        } else if (formatStr !== 'UNKNOWN') {
-            badgeText = formatStr;
-        }
+
+    const isHiRes = track.quality === 'HI_RES_LOSSLESS' || 
+                    (track.sampleRate && Number(track.sampleRate) > 48000) || 
+                    (track.bitDepth && Number(track.bitDepth) > 16);
+                    
+    const isLossless = track.quality === 'LOSSLESS' || 
+                       track.lossless === true || 
+                       (track.format && ['flac', 'wav', 'alac'].includes(String(track.format).toLowerCase()));
+
+    if (isHiRes) {
+        const bitStr = track.bitDepth ? `${track.bitDepth}-bit` : '24-bit';
+        const rateStr = track.sampleRate ? `${Math.round(track.sampleRate / 1000)} kHz` : '96 kHz';
+        const fmt = (track.format || 'FLAC').toUpperCase();
+        return `<div class="quality-badge badge-hires" title="Hi-Res Lossless Audio (${bitStr} / ${rateStr} · ${fmt})"><span class="badge-icon">💎</span><span class="badge-title">HI-RES LOSSLESS</span><span class="badge-sep">·</span><span class="badge-meta">${bitStr} / ${rateStr}</span></div>`;
+    } else if (isLossless) {
+        const bitStr = track.bitDepth ? `${track.bitDepth}-bit` : '16-bit';
+        const rateStr = track.sampleRate ? `${Math.round(track.sampleRate / 1000)} kHz` : '44.1 kHz';
+        const fmt = (track.format || 'FLAC').toUpperCase();
+        return `<div class="quality-badge badge-lossless" title="Studio Lossless Quality (${bitStr} / ${rateStr})"><span class="badge-icon">✦</span><span class="badge-title">LOSSLESS</span><span class="badge-sep">·</span><span class="badge-meta">${fmt}</span></div>`;
+    } else if (track.quality === 'HIGH' && track.bitrate) {
+        const kbps = Math.round(track.bitrate / 1000);
+        return `<div class="quality-badge badge-high"><span class="badge-title">HQ AUDIO</span><span class="badge-sep">·</span><span class="badge-meta">${kbps} kbps</span></div>`;
+    } else if (track.source === 'local') {
+        const fmt = (track.format || 'AUDIO').toUpperCase();
+        return `<div class="quality-badge badge-standard"><span class="badge-title">${escapeHtml(fmt)}</span></div>`;
     }
-    
-    if (!badgeText || badgeText === 'UNKNOWN') return '';
-    return `<div class="quality-badge ${badgeClass}">${escapeHtml(badgeText)}</div>`;
+
+    return '';
 }
 
 function renderTrackListItem(track, index, source, options = {}) {
@@ -2101,8 +2068,9 @@ window.renderQueueDrawer = renderQueueDrawer;
 window.toggleLike = toggleLike;
 window.showAddToPlaylist = showAddToPlaylist;
 
-// Telegram Vault Controller Functions
+// Lossless Studio & Master Engine Controller Functions
 window.loadTelegramVault = loadTelegramVault;
+window.loadLosslessStudio = loadTelegramVault;
 window.switchVaultTab = switchVaultTab;
 window.loadVaultSources = loadVaultSources;
 window.startSourceIndexing = startSourceIndexing;
@@ -2182,8 +2150,8 @@ async function loadVaultSources() {
         if (sources.length === 0) {
             listEl.innerHTML = `
                 <div class="empty-state">
-                    <p>No Telegram sources configured yet.</p>
-                    <button class="button button-primary" style="margin-top:12px;" onclick="openAddSourceModal()">+ Add Your First Source</button>
+                    <p>No audio feeds configured yet.</p>
+                    <button class="button button-primary" style="margin-top:12px;" onclick="openAddSourceModal()">+ Add Audio Feed</button>
                 </div>
             `;
             return;
@@ -2268,7 +2236,7 @@ async function stopSourceIndexing(sourceId) {
 }
 
 async function deleteVaultSource(sourceId) {
-    if (!confirm('Are you sure you want to delete this Telegram source and remove its index records?')) return;
+    if (!confirm('Are you sure you want to delete this audio source and remove its indexed tracks?')) return;
     try {
         await api(`/telegram/sources/${sourceId}`, { method: 'DELETE' });
         showToast('Source deleted', 'success');

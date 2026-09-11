@@ -968,24 +968,88 @@ img {
 }
 
 .quality-badge {
-  display: inline-block;
-  font-size: 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9.5px;
   font-weight: 700;
-  text-transform: uppercase;
   letter-spacing: 0.05em;
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
   margin-top: 6px;
+  line-height: 1.2;
+  transition: all 0.2s var(--ease-out);
+  width: fit-content;
 }
+
+.quality-badge .badge-icon {
+  font-size: 10px;
+  line-height: 1;
+}
+
+.quality-badge .badge-title {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.quality-badge .badge-sep {
+  opacity: 0.45;
+  font-weight: 400;
+}
+
+.quality-badge .badge-meta {
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  opacity: 0.9;
+}
+
+/* Apple Music Hi-Res Lossless (Gold Shimmer) */
+.badge-hires {
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.20) 0%, rgba(212, 160, 23, 0.10) 100%);
+  color: #ffdf6d;
+  border: 1px solid rgba(255, 215, 0, 0.42);
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.16);
+}
+
+.badge-hires:hover {
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.28) 0%, rgba(212, 160, 23, 0.16) 100%);
+  border-color: rgba(255, 215, 0, 0.6);
+  box-shadow: 0 0 14px rgba(255, 215, 0, 0.25);
+}
+
+/* Apple Music Lossless / Spotify HiFi (Silver Glass) */
+.badge-lossless {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.04) 100%);
+  color: #f1f4f8;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.06);
+}
+
+.badge-lossless:hover {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.08) 100%);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+/* High Quality Bitrate Badge */
+.badge-high {
+  background: rgba(147, 197, 253, 0.12);
+  color: #93c5fd;
+  border: 1px solid rgba(147, 197, 253, 0.25);
+}
+
+/* Standard/Legacy Badges */
 .badge-gold {
   background: rgba(255, 215, 0, 0.15);
   color: #ffd700;
   border: 1px solid rgba(255, 215, 0, 0.3);
 }
+
 .badge-standard {
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
 .track-list-artist-row {
@@ -3083,16 +3147,18 @@ body.fullscreen-player-open {
    ================================================================== */
 
 .search-policy-banner {
-  font-size: 11px;
-  color: var(--accent-bright);
-  background: rgba(123, 110, 255, 0.08);
-  border: 1px solid rgba(123, 110, 255, 0.2);
-  padding: 6px 12px;
-  border-radius: var(--radius-xs);
-  margin-bottom: 16px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #ffd770;
+  background: linear-gradient(90deg, rgba(255, 215, 0, 0.12) 0%, rgba(123, 110, 255, 0.06) 100%);
+  border: 1px solid rgba(255, 215, 0, 0.25);
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 18px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
 }
 
 .vault-header {

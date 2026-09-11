@@ -128,7 +128,6 @@ async function youtubeSearch(query, limit = 25) {
     return rankedVideos.slice(0, limit);
 }
 
-const internetArchiveProvider = require('../services/internetArchiveProvider');
 const telegramIngestService = require('../services/telegramIngestService');
 const telegramProvider = require('../services/telegramProvider');
 
@@ -153,7 +152,7 @@ function mapDetailedYoutubeToTrack(video) {
     };
 }
 
-// GET /api/music/search?q=...&source=all|youtube|archive|telegram&limit=25
+// GET /api/music/search?q=...&source=all|youtube|lossless&limit=25
 router.get('/search', async (req, res) => {
     try {
         const { q, limit = 25, source = 'all' } = req.query;
@@ -161,7 +160,6 @@ router.get('/search', async (req, res) => {
 
         const parsedLimit = Math.min(Math.max(parseInt(limit, 10) || 25, 1), 50);
         const db = req.app.locals.db;
-        const saveDb = req.app.locals.saveDb;
 
         // 1. Explicit YouTube source: 100% preserve existing response format & behavior
         if (source === 'youtube') {
@@ -174,50 +172,34 @@ router.get('/search', async (req, res) => {
             });
         }
 
-        // 2. Internet Archive source
-        if (source === 'archive') {
-            const archiveTracks = await internetArchiveProvider.searchTracks(q, {
-                limit: parsedLimit,
-                db,
-                saveDb
-            });
-            return res.json({ data: archiveTracks });
-        }
-
-        // 3. Telegram source (Local-first search across all enabled sources in priority order)
-        if (source === 'telegram') {
-            const telegramTracks = telegramProvider.searchTracks(q, {
+        // 2. Explicit Lossless / Studio source
+        if (source === 'lossless' || source === 'telegram') {
+            const losslessTracks = telegramProvider.searchTracks(q, {
                 db,
                 limit: parsedLimit
             });
             return res.json({ 
-                data: telegramTracks,
-                wording: "Best available result from the configured, authorized sources, ranked by verified audio quality."
+                data: losslessTracks
             });
         }
 
-        // 4. Default: source === 'all' -> Unified multi-provider search in parallel
-        const [ytResult, iaResult, tgResult] = await Promise.allSettled([
+        // 3. Default: source === 'all' -> Unified multi-source search (Studio Lossless + YouTube)
+        const [ytResult, losslessResult] = await Promise.allSettled([
             youtubeSearch(q, parsedLimit).then(videos => videos.map(mapDetailedYoutubeToTrack)).catch(err => {
                 console.warn("[Search] YouTube search error:", err.message);
                 return [];
             }),
-            internetArchiveProvider.searchTracks(q, { limit: Math.min(parsedLimit, 10), db, saveDb }).catch(err => {
-                console.warn("[Search] Internet Archive error:", err.message);
-                return [];
-            }),
-            Promise.resolve(telegramProvider.searchTracks(q, { db, limit: Math.min(parsedLimit, 10) })).catch(err => {
-                console.warn("[Search] Telegram search error:", err.message);
+            Promise.resolve(telegramProvider.searchTracks(q, { db, limit: Math.min(parsedLimit, 15) })).catch(err => {
+                console.warn("[Search] Lossless search error:", err.message);
                 return [];
             })
         ]);
 
         const ytTracks = ytResult.status === 'fulfilled' ? ytResult.value : [];
-        const iaTracks = iaResult.status === 'fulfilled' ? iaResult.value : [];
-        const tgTracks = tgResult.status === 'fulfilled' ? tgResult.value : [];
+        const losslessTracks = losslessResult.status === 'fulfilled' ? losslessResult.value : [];
 
-        // Return combined normalized track list (Telegram Vault + Internet Archive + YouTube)
-        const combined = [...tgTracks, ...iaTracks, ...ytTracks];
+        // Rank pristine Lossless / Studio tracks first, followed by YouTube
+        const combined = [...losslessTracks, ...ytTracks];
         return res.json({ data: combined });
     } catch (err) {
         console.error("Search error:", err);
@@ -230,26 +212,12 @@ router.get('/lossless', async (req, res) => {
     try {
         const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 30, 1), 50);
         const db = req.app.locals.db;
-        const saveDb = req.app.locals.saveDb;
 
-        // Fetch lossless tracks from Telegram (verified cached or indexed)
-        const tgLossless = telegramProvider.searchTracks('', { db, limit: Math.ceil(limit / 2) })
+        // Fetch pristine lossless tracks from native catalog (FLAC / Studio Masters)
+        const losslessTracks = telegramProvider.searchTracks('', { db, limit })
             .filter(t => t.lossless);
 
-        let iaLossless = internetArchiveProvider.getLosslessTracks(db, Math.ceil(limit / 2));
-
-        // If cache has few tracks, seed verified lossless CC items
-        if (iaLossless.length < 4) {
-            try {
-                await internetArchiveProvider.searchTracks('classical flac', { limit: 8, db, saveDb });
-                iaLossless = internetArchiveProvider.getLosslessTracks(db, Math.ceil(limit / 2));
-            } catch (seedErr) {
-                console.warn("[Lossless] Seed error:", seedErr.message);
-            }
-        }
-
-        const combined = [...tgLossless, ...iaLossless];
-        res.json({ data: combined });
+        res.json({ data: losslessTracks });
     } catch (err) {
         console.error("Lossless endpoint error:", err);
         res.status(500).json({ error: 'Failed to fetch lossless tracks', details: err.message });
