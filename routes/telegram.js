@@ -45,7 +45,34 @@ router.get('/sources', (req, res) => {
     const db = req.app.locals.db;
     try {
         const sources = telegramSourceManager.getSources(db);
-        res.json({ data: sources });
+        const sanitized = sources.map(s => ({
+            id: s.id,
+            sourceId: s.id,
+            name: s.name,
+            type: s.type || 'telegram',
+            chat_id: s.chat_id,
+            username: s.username,
+            peer_id: s.peer_id || null,
+            peerId: s.peer_id || null,
+            enabled: Boolean(s.enabled),
+            priority: s.priority,
+            status: s.status,
+            indexing_status: s.indexing_status,
+            last_indexed_message_id: s.last_indexed_message_id,
+            indexed_messages: s.indexed_messages,
+            indexed_audio: s.indexed_audio,
+            indexedTrackCount: s.indexed_audio,
+            last_indexed_at: s.last_indexed_at,
+            last_successful_search: s.last_successful_search,
+            lastSuccessfulSearch: s.last_successful_search,
+            last_successful_retrieval: s.last_successful_retrieval,
+            lastSuccessfulRetrieval: s.last_successful_retrieval,
+            last_error: s.last_error,
+            lastError: s.last_error,
+            error_count: s.error_count || 0,
+            errorCount: s.error_count || 0
+        }));
+        res.json({ data: sanitized });
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch sources', details: err.message });
     }
@@ -131,12 +158,169 @@ router.post('/sources/:id/stop', (req, res) => {
     }
 });
 
+// POST /api/telegram/sources/:id/test
+// Tests connection to an individual source entity
+router.post('/sources/:id/test', async (req, res) => {
+    const db = req.app.locals.db;
+    const saveDb = req.app.locals.saveDb;
+    try {
+        const source = telegramSourceManager.getSourceById(db, req.params.id);
+        if (!source) return res.status(404).json({ error: 'Source not found' });
+
+        // 1. Verify MTProto credentials
+        if (!telegramProvider.apiId || !telegramProvider.apiHash) {
+            db.run('UPDATE telegram_sources SET status = "AUTHENTICATION_REQUIRED" WHERE id = ?', [req.params.id]);
+            if (saveDb) saveDb();
+            return res.json({
+                success: false,
+                status: 'AUTHENTICATION_REQUIRED',
+                message: 'Telegram API credentials not configured in .env'
+            });
+        }
+
+        // 2. Verify Client Connection
+        const client = await telegramProvider.getClient();
+        if (!client || !telegramProvider.isConnected) {
+            const hasSession = Boolean(telegramProvider.sessionString);
+            const status = hasSession ? 'OFFLINE' : 'AUTHENTICATION_REQUIRED';
+            db.run('UPDATE telegram_sources SET status = ? WHERE id = ?', [status, req.params.id]);
+            if (saveDb) saveDb();
+            return res.json({
+                success: false,
+                status,
+                message: hasSession ? 'Telegram client offline or network unreachable' : 'Telegram user session required'
+            });
+        }
+
+        const target = source.chat_id || source.username;
+        if (!target) {
+            db.run('UPDATE telegram_sources SET status = "ERROR" WHERE id = ?', [req.params.id]);
+            if (saveDb) saveDb();
+            return res.json({
+                success: false,
+                status: 'ERROR',
+                message: 'Source chat_id or username is not set'
+            });
+        }
+
+        // 3. Real MTProto entity resolution
+        try {
+            const entity = await client.getEntity(target);
+            db.run('UPDATE telegram_sources SET status = "CONNECTED" WHERE id = ?', [req.params.id]);
+            if (saveDb) saveDb();
+            return res.json({
+                success: true,
+                status: 'CONNECTED',
+                title: entity.title || entity.username || source.name,
+                message: 'Successfully reached source entity'
+            });
+        } catch (entityErr) {
+            const errStr = (entityErr.message || '').toLowerCase();
+            let status = 'ERROR';
+            if (errStr.includes('private') || errStr.includes('inaccessible') || errStr.includes('access') || 
+                errStr.includes('not a member') || errStr.includes('not found') || 
+                errStr.includes('chat_admin_required') || errStr.includes('channel_private')) {
+                status = 'INACCESSIBLE';
+            } else if (errStr.includes('auth') || errStr.includes('session') || errStr.includes('unauthorized')) {
+                status = 'AUTHENTICATION_REQUIRED';
+            } else if (errStr.includes('network') || errStr.includes('timeout') || errStr.includes('connection') || errStr.includes('econnrefused')) {
+                status = 'OFFLINE';
+            }
+            db.run('UPDATE telegram_sources SET status = ? WHERE id = ?', [status, req.params.id]);
+            if (saveDb) saveDb();
+            return res.json({
+                success: false,
+                status,
+                message: entityErr.message
+            });
+        }
+    } catch (err) {
+        db.run('UPDATE telegram_sources SET status = "ERROR" WHERE id = ?', [req.params.id]);
+        if (saveDb) saveDb();
+        res.status(500).json({ success: false, status: 'ERROR', error: err.message });
+    }
+});
+
+// GET /api/telegram/sources/:id/status
+router.get('/sources/:id/status', (req, res) => {
+    const db = req.app.locals.db;
+    try {
+        const source = telegramSourceManager.getSourceById(db, req.params.id);
+        if (!source) return res.status(404).json({ error: 'Source not found' });
+        const job = telegramSourceManager.activeIndexingJobs.get(req.params.id);
+        res.json({
+            sourceId: source.id,
+            status: source.status,
+            indexingStatus: source.indexing_status,
+            indexedMessages: source.indexed_messages,
+            indexedAudio: source.indexed_audio,
+            lastIndexedAt: source.last_indexed_at,
+            lastSuccessfulSearch: source.last_successful_search,
+            lastSuccessfulRetrieval: source.last_successful_retrieval,
+            lastError: source.last_error,
+            errorCount: source.error_count || 0,
+            isActive: Boolean(job && job.isRunning)
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/telegram/sources/:id/resolve
+// Dynamically resolves a single source using authenticated MTProto session
+router.post('/sources/:id/resolve', async (req, res) => {
+    const db = req.app.locals.db;
+    const saveDb = req.app.locals.saveDb;
+    try {
+        const client = await telegramProvider.getClient();
+        const result = await telegramSourceManager.resolveSourceEntity(db, saveDb, req.params.id, client);
+        res.json({
+            success: result.status === 'CONNECTED',
+            data: {
+                sourceId: result.sourceId,
+                name: result.name,
+                username: result.username,
+                peerId: result.peerId,
+                status: result.status,
+                error: result.error || null
+            },
+            message: result.status === 'CONNECTED' 
+                ? `Successfully resolved entity (Peer ID: ${result.peerId})`
+                : `Source resolution status: ${result.status}`
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Source resolution failed', details: err.message });
+    }
+});
+
+// POST /api/telegram/sources/resolve-all
+// Dynamically resolves all enabled Telegram sources independently
+router.post('/sources/resolve-all', async (req, res) => {
+    const db = req.app.locals.db;
+    const saveDb = req.app.locals.saveDb;
+    try {
+        const client = await telegramProvider.getClient();
+        const results = await telegramSourceManager.resolveAllSources(db, saveDb, client);
+        const sanitized = results.map(r => ({
+            sourceId: r.sourceId,
+            name: r.name,
+            username: r.username,
+            peerId: r.peerId || null,
+            status: r.status,
+            error: r.error || null
+        }));
+        res.json({ success: true, data: sanitized });
+    } catch (err) {
+        res.status(500).json({ error: 'Batch resolution failed', details: err.message });
+    }
+});
+
 // ==========================================
 // 2. SEARCH (LOCAL-FIRST, INSTANT)
 // ==========================================
 
 // GET /api/telegram/search?q=...&limit=25
-router.get('/search', (req, res) => {
+router.get('/search', async (req, res) => {
     const db = req.app.locals.db;
     const q = req.query.q || '';
     const limit = Math.min(parseInt(req.query.limit, 10) || 25, 50);
@@ -144,7 +328,7 @@ router.get('/search', (req, res) => {
     if (!q.trim()) return res.json({ data: [] });
 
     try {
-        const tracks = telegramProvider.searchTracks(q, { db, limit });
+        const tracks = await telegramProvider.searchTracks(q, { db, limit });
         res.json({
             data: tracks,
             total: tracks.length,
@@ -210,6 +394,23 @@ router.get('/prepare/:id', (req, res) => {
         isCached: false,
         message: 'Track is not retrieved yet'
     });
+});
+
+// GET /api/telegram/tracks/:id
+// Direct track metadata lookup & cache check
+router.get('/tracks/:id', async (req, res) => {
+    const db = req.app.locals.db;
+    const trackId = req.params.id;
+
+    try {
+        const track = await telegramProvider.resolve(trackId, { db });
+        if (!track) {
+            return res.status(404).json({ error: 'Track not found in Telegram index or cache' });
+        }
+        res.json({ data: track });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to retrieve track details', details: err.message });
+    }
 });
 
 // ==========================================
@@ -284,6 +485,18 @@ router.get('/requests', (req, res) => {
     }
 });
 
+// GET /api/telegram/requests/:id
+router.get('/requests/:id', (req, res) => {
+    const db = req.app.locals.db;
+    try {
+        const item = getOne(db, 'SELECT * FROM telegram_requests WHERE id = ?', [req.params.id]);
+        if (!item) return res.status(404).json({ error: 'Request not found' });
+        res.json({ data: telegramRequestWorker._formatRequest(item) });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch request', details: err.message });
+    }
+});
+
 // POST /api/telegram/requests/process
 router.post('/requests/process', async (req, res) => {
     const db = req.app.locals.db;
@@ -298,14 +511,128 @@ router.post('/requests/process', async (req, res) => {
 });
 
 // ==========================================
-// 6. STATUS & CACHE MAINTENANCE
+// 6. AUTHENTICATION (BACKEND-ONLY SAFETY)
+// ==========================================
+
+// GET /api/telegram/auth/status
+router.get('/auth/status', (req, res) => {
+    const configured = Boolean(telegramProvider.apiId && telegramProvider.apiHash);
+    const connected = telegramProvider.isConnected;
+    res.json({
+        configured,
+        connected,
+        hasSession: Boolean(telegramProvider.sessionString),
+        hasBotToken: Boolean(telegramProvider.botToken),
+        message: configured ? (connected ? 'Connected to Telegram MTProto' : 'Configured, ready to connect') : 'Credentials not configured'
+    });
+});
+
+// POST /api/telegram/auth/send-code
+router.post('/auth/send-code', async (req, res) => {
+    const { phoneNumber } = req.body;
+    if (!phoneNumber) return res.status(400).json({ error: 'Phone number is required' });
+
+    try {
+        const client = await telegramProvider.getClient();
+        if (!client) {
+            return res.status(503).json({ error: 'Telegram MTProto client not initialized. Check TELEGRAM_API_ID & HASH.' });
+        }
+        const { phoneCodeHash } = await client.sendCode(
+            { apiId: telegramProvider.apiId, apiHash: telegramProvider.apiHash },
+            phoneNumber
+        );
+        res.json({ success: true, phoneCodeHash, message: 'Authentication code sent to Telegram account' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to send code', details: err.message });
+    }
+});
+
+// POST /api/telegram/auth/sign-in
+router.post('/auth/sign-in', async (req, res) => {
+    const { phoneNumber, phoneCodeHash, phoneCode, password } = req.body;
+    if (!phoneNumber || !phoneCodeHash || !phoneCode) {
+        return res.status(400).json({ error: 'Missing authentication parameters' });
+    }
+
+    try {
+        const client = await telegramProvider.getClient();
+        if (!client) {
+            return res.status(503).json({ error: 'Telegram client unavailable' });
+        }
+        await client.signInUser(
+            { apiId: telegramProvider.apiId, apiHash: telegramProvider.apiHash },
+            {
+                phoneNumber,
+                phoneCodeHash,
+                phoneCode,
+                password: password ? async () => password : undefined
+            }
+        );
+        telegramProvider.isConnected = true;
+        const sessionString = client.session.save();
+        if (sessionString) {
+            telegramProvider.saveSession(sessionString);
+        }
+        res.json({ success: true, message: 'Successfully authenticated with Telegram MTProto', sessionSaved: Boolean(sessionString) });
+    } catch (err) {
+        res.status(500).json({ error: 'Sign-in failed', details: err.message });
+    }
+});
+
+// POST /api/telegram/auth/configure
+// Configures API ID and API Hash from admin settings without manual file editing
+router.post('/auth/configure', (req, res) => {
+    const { apiId, apiHash, botToken } = req.body;
+    if (!apiId || !apiHash) {
+        return res.status(400).json({ error: 'apiId and apiHash are required' });
+    }
+
+    telegramProvider.apiId = parseInt(apiId, 10);
+    telegramProvider.apiHash = String(apiHash).trim();
+    if (botToken) telegramProvider.botToken = String(botToken).trim();
+
+    process.env.TELEGRAM_API_ID = String(apiId);
+    process.env.TELEGRAM_API_HASH = String(apiHash);
+    if (botToken) process.env.TELEGRAM_BOT_TOKEN = String(botToken);
+
+    // Update .env file if it exists
+    try {
+        const envPath = path.join(__dirname, '..', '.env');
+        if (fs.existsSync(envPath)) {
+            let envContent = fs.readFileSync(envPath, 'utf8');
+            const updateKey = (key, val) => {
+                const regex = new RegExp(`^${key}=.*$`, 'm');
+                if (regex.test(envContent)) {
+                    envContent = envContent.replace(regex, `${key}=${val}`);
+                } else {
+                    envContent += `\n${key}=${val}\n`;
+                }
+            };
+            updateKey('TELEGRAM_API_ID', apiId);
+            updateKey('TELEGRAM_API_HASH', apiHash);
+            if (botToken) updateKey('TELEGRAM_BOT_TOKEN', botToken);
+            fs.writeFileSync(envPath, envContent, 'utf8');
+        }
+    } catch (e) {
+        console.warn('[Telegram Routes] Could not write credentials to .env:', e.message);
+    }
+
+    res.json({ success: true, message: 'Telegram credentials configured successfully' });
+});
+
+// ==========================================
+// 7. STATUS & CACHE MAINTENANCE
 // ==========================================
 
 // GET /api/telegram/status
 router.get('/status', (req, res) => {
     const db = req.app.locals.db;
     const status = telegramProvider.getStatus(db);
-    res.json(status);
+    res.json({
+        enabled: Boolean(status.configured),
+        importedCount: status.totalCachedTracks,
+        ...status
+    });
 });
 
 // POST /api/telegram/cache/clean
@@ -318,6 +645,19 @@ router.post('/cache/clean', async (req, res) => {
         res.json({ success: true, message: 'Cache cleaned successfully', status });
     } catch (err) {
         res.status(500).json({ error: 'Cache clean failed', details: err.message });
+    }
+});
+
+// POST /api/telegram/cache/verify
+// Runs cache integrity scan: repairs missing files, clears corrupted entries, reports stats
+router.post('/cache/verify', (req, res) => {
+    const db = req.app.locals.db;
+    const saveDb = req.app.locals.saveDb;
+    try {
+        const report = telegramProvider.verifyCacheIntegrity(db, saveDb);
+        res.json({ success: true, message: 'Cache integrity check completed', report });
+    } catch (err) {
+        res.status(500).json({ error: 'Cache verification failed', details: err.message });
     }
 });
 

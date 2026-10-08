@@ -1,0 +1,10 @@
+ytmusicapi==1.12.3
+spotapi==1.2.8
+fastapi
+uvicorn
+pydantic
+requests
+pymongo
+redis
+websockets
+

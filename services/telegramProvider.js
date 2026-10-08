@@ -68,12 +68,26 @@ const TAMIL_PHONETIC_PAIRS = [
     ['malargale', 'மலர்களே']
 ];
 
+const textNormalizer = require('./textNormalizer');
+const telegramRetrievalManager = require('./telegramRetrievalManager');
+
 class TelegramProvider {
     constructor() {
+        this.name = 'Telegram';
         this.apiId = process.env.TELEGRAM_API_ID ? parseInt(process.env.TELEGRAM_API_ID, 10) : null;
         this.apiHash = process.env.TELEGRAM_API_HASH || '';
         this.sessionString = process.env.TELEGRAM_SESSION || '';
         this.botToken = process.env.TELEGRAM_BOT_TOKEN || '';
+
+        // Load session from persistent file if process.env.TELEGRAM_SESSION is not set
+        const sessionFilePath = path.join(__dirname, '..', 'database', '.telegram_session');
+        if (!this.sessionString && fs.existsSync(sessionFilePath)) {
+            try {
+                this.sessionString = fs.readFileSync(sessionFilePath, 'utf8').trim();
+            } catch (e) {
+                console.warn('[TelegramProvider] Error reading .telegram_session file:', e.message);
+            }
+        }
 
         this.maxCacheGb = parseFloat(process.env.MAX_TELEGRAM_CACHE_GB || '25');
         this.minFreeDiskGb = parseFloat(process.env.MIN_FREE_DISK_GB || '5');
@@ -86,13 +100,95 @@ class TelegramProvider {
         this.coversDir = path.join(this.uploadBaseDir, 'covers');
         this.tempDir = path.join(this.uploadBaseDir, 'temp');
 
+        this.activeStreams = new Set();
         this.ensureDirectories();
+        this.cleanOrphanedTempFiles();
 
         // Active retrieval jobs map: trackId -> Promise<{ success, track, error }>
-        // Prevents duplicate downloads for simultaneous requests of the same track
-        this.activeRetrievals = new Map();
+        this.activeRetrievals = telegramRetrievalManager.activeRetrievals;
         // Progress tracker: trackId -> { progressPercent, status, startedAt }
-        this.retrievalProgress = new Map();
+        this.retrievalProgress = telegramRetrievalManager.retrievalProgress;
+    }
+
+    /**
+     * Persist StringSession securely across server restarts
+     */
+    saveSession(sessionString) {
+        if (!sessionString) return;
+        this.sessionString = sessionString;
+        process.env.TELEGRAM_SESSION = sessionString;
+
+        // 1. Write to database/.telegram_session
+        try {
+            const sessionPath = path.join(__dirname, '..', 'database', '.telegram_session');
+            fs.writeFileSync(sessionPath, sessionString, { encoding: 'utf8', mode: 0o600 });
+            console.log('[TelegramProvider] Session successfully persisted to database/.telegram_session');
+        } catch (e) {
+            console.error('[TelegramProvider] Failed to persist session file:', e.message);
+        }
+
+        // 2. Update .env file if present
+        try {
+            const envPath = path.join(__dirname, '..', '.env');
+            if (fs.existsSync(envPath)) {
+                let envContent = fs.readFileSync(envPath, 'utf8');
+                if (/^TELEGRAM_SESSION=.*$/m.test(envContent)) {
+                    envContent = envContent.replace(/^TELEGRAM_SESSION=.*$/m, `TELEGRAM_SESSION=${sessionString}`);
+                } else {
+                    envContent += `\nTELEGRAM_SESSION=${sessionString}\n`;
+                }
+                fs.writeFileSync(envPath, envContent, 'utf8');
+            }
+        } catch (e) {
+            console.warn('[TelegramProvider] Note: Could not update .env file:', e.message);
+        }
+    }
+
+    async getHealth() {
+        return {
+            provider: 'telegram',
+            status: (this.apiId && this.apiHash) ? (this.isConnected ? 'ONLINE' : 'CONFIGURED') : 'UNCONFIGURED',
+            connected: this.isConnected,
+            configured: Boolean(this.apiId && this.apiHash),
+            message: (this.apiId && this.apiHash) ? 'MTProto credentials configured' : 'Telegram MTProto credentials not set in .env'
+        };
+    }
+
+    /**
+     * Standard provider search method
+     */
+    async search(query, options = {}) {
+        return this.searchTracks(query, options);
+    }
+
+    /**
+     * Standard provider resolve method
+     */
+    async resolve(trackId, options = {}) {
+        const db = options.db;
+        if (!db || !trackId) return null;
+
+        const row = getOne(db, `
+            SELECT 
+                idx.*,
+                src.name as source_name,
+                src.priority as source_priority,
+                trk.id as cached_track_id,
+                trk.status as cached_status,
+                trk.file_path as cached_file_path,
+                trk.cover_path as cached_cover_path,
+                trk.sample_rate as verified_sample_rate,
+                trk.bit_depth as verified_bit_depth,
+                trk.bitrate as verified_bitrate,
+                trk.codec as verified_codec,
+                trk.quality as verified_quality
+            FROM telegram_library_index idx
+            JOIN telegram_sources src ON idx.source_id = src.id
+            LEFT JOIN telegram_tracks trk ON (trk.telegram_message_id = idx.message_id AND trk.source_id = idx.source_id)
+            WHERE idx.id = ? OR trk.id = ?
+        `, [trackId, trackId]);
+
+        return row ? this.normalizeIndexRow(row) : null;
     }
 
     ensureDirectories() {
@@ -103,6 +199,95 @@ class TelegramProvider {
         } catch (e) {
             console.error('[TelegramProvider] Error creating directories:', e.message);
         }
+    }
+
+    /**
+     * Cleans up orphaned or interrupted temporary files left over from prior server runs.
+     */
+    cleanOrphanedTempFiles() {
+        try {
+            if (fs.existsSync(this.tempDir)) {
+                const files = fs.readdirSync(this.tempDir);
+                for (const f of files) {
+                    try {
+                        const full = path.join(this.tempDir, f);
+                        fs.unlinkSync(full);
+                        console.log(`[TelegramProvider] Cleaned interrupted temp file: ${f}`);
+                    } catch (e) {}
+                }
+            }
+        } catch (e) {
+            console.error('[TelegramProvider] Error cleaning temp files:', e.message);
+        }
+    }
+
+    /**
+     * Cache Consistency & Integrity Verification:
+     * - Verifies all records marked READY in telegram_tracks have valid non-zero files on disk.
+     * - Marks missing/corrupt records as NOT_READY so they can be re-retrieved cleanly.
+     * - Removes zero-byte files from cache.
+     */
+    verifyCacheIntegrity(db, saveDb) {
+        if (!db) return { verified: 0, repaired: 0, zeroByteCleaned: 0 };
+        let verified = 0;
+        let repaired = 0;
+        let zeroByteCleaned = 0;
+
+        try {
+            const tracks = getAll(db, "SELECT * FROM telegram_tracks WHERE status = 'READY'");
+
+            for (const track of tracks) {
+                verified++;
+                const safeName = path.basename(track.file_path);
+                const fullPath = path.join(this.uploadBaseDir, safeName);
+
+                let isBroken = false;
+                if (!fs.existsSync(fullPath)) {
+                    isBroken = true;
+                } else {
+                    const stat = fs.statSync(fullPath);
+                    if (stat.size === 0) {
+                        isBroken = true;
+                        try { fs.unlinkSync(fullPath); } catch (e) {}
+                    }
+                }
+
+                if (isBroken) {
+                    console.warn(`[CacheIntegrity] File missing/empty for track "${track.title}" (${track.id}). Marking NOT_READY.`);
+                    runSql(db, "UPDATE telegram_tracks SET status = 'NOT_READY' WHERE id = ?", [track.id]);
+                    repaired++;
+                } else if (track.cover_path) {
+                    const coverSafe = path.basename(track.cover_path);
+                    const coverFull = path.join(this.coversDir, coverSafe);
+                    if (!fs.existsSync(coverFull)) {
+                        runSql(db, "UPDATE telegram_tracks SET cover_path = NULL WHERE id = ?", [track.id]);
+                    }
+                }
+            }
+
+            // Remove zero-byte files from uploads/telegram
+            if (fs.existsSync(this.uploadBaseDir)) {
+                const files = fs.readdirSync(this.uploadBaseDir);
+                for (const file of files) {
+                    const full = path.join(this.uploadBaseDir, file);
+                    try {
+                        const stat = fs.statSync(full);
+                        if (stat.isFile() && stat.size === 0) {
+                            fs.unlinkSync(full);
+                            zeroByteCleaned++;
+                            console.log(`[CacheIntegrity] Removed zero-byte file: ${file}`);
+                        }
+                    } catch (e) {}
+                }
+            }
+
+            if (saveDb && repaired > 0) saveDb();
+            console.log(`[CacheIntegrity] Check complete: ${verified} checked, ${repaired} repaired, ${zeroByteCleaned} zero-byte cleaned.`);
+        } catch (e) {
+            console.error('[CacheIntegrity] Verification error:', e.message);
+        }
+
+        return { verified, repaired, zeroByteCleaned };
     }
 
     /**
@@ -158,138 +343,33 @@ class TelegramProvider {
     }
 
     /**
-     * Normalizes search query and metadata text:
+     * Normalizes search query and metadata text via textNormalizer:
      * - Strips bracketed tags: [FLAC], (24-bit/96kHz), [Lossless], (From "Movie"), etc.
      * - Removes special characters and punctuation
-     * - Preserves Tamil and other Unicode scripts
+     * - Preserves Tamil and other Unicode scripts with combining vowel marks
      */
     normalizeText(text) {
-        if (!text) return '';
-        let cleaned = String(text).toLowerCase();
-        // Remove brackets and their content
-        cleaned = cleaned.replace(/\[[^\]]*\]/g, ' ');
-        cleaned = cleaned.replace(/\([^)]*\)/g, ' ');
-        // Replace punctuation with space, but preserve Unicode alphanumeric characters (Tamil, Hindi, etc.)
-        cleaned = cleaned.replace(/[^\p{L}\p{N}\s]/gu, ' ');
-        // Collapse multiple spaces
-        return cleaned.replace(/\s+/g, ' ').trim();
+        return textNormalizer.normalize(text);
     }
 
     /**
-     * Returns an array of search variations (e.g. Tamil to phonetic, phonetic to Tamil)
+     * Returns an array of search variations (e.g. Tamil to phonetic, phonetic to Tamil, double vowels)
      */
     getSearchVariations(query) {
-        const norm = this.normalizeText(query);
-        const variations = new Set([norm]);
-
-        // Check phonetic pairs
-        for (const [phonetic, tamil] of TAMIL_PHONETIC_PAIRS) {
-            if (norm.includes(phonetic)) {
-                variations.add(norm.replace(phonetic, this.normalizeText(tamil)));
-            }
-            const normTamil = this.normalizeText(tamil);
-            if (norm.includes(normTamil)) {
-                variations.add(norm.replace(normTamil, phonetic));
-            }
-        }
-
-        return Array.from(variations).filter(Boolean);
+        return textNormalizer.getSearchVariations(query);
     }
 
     /**
-     * LOCAL-FIRST SEARCH:
-     * Queries the local telegram_library_index joined with telegram_sources.
-     * Instant, fast, zero network blocking, completely resilient to Telegram network drops.
+     * MULTI-SOURCE SEARCH:
+     * Delegates multi-source search across all enabled Telegram sources in parallel
+     * to TelegramSourceManager.searchAllSources().
+     * Fault-tolerant, isolated execution (Promise.allSettled).
      */
-    searchTracks(query = '', options = {}) {
+    async searchTracks(query = '', options = {}) {
         const { limit = 25, db = null } = options;
         if (!db) return [];
-
-        const cleanQuery = (query || '').trim();
-
-        try {
-            // Build local SQL search with priority ranking
-            // Matches on title, artist, file_name, or album
-            let sql = `
-                SELECT 
-                    idx.*,
-                    src.name as source_name,
-                    src.priority as source_priority,
-                    trk.id as cached_track_id,
-                    trk.status as cached_status,
-                    trk.file_path as cached_file_path,
-                    trk.cover_path as cached_cover_path,
-                    trk.sample_rate as verified_sample_rate,
-                    trk.bit_depth as verified_bit_depth,
-                    trk.bitrate as verified_bitrate,
-                    trk.codec as verified_codec,
-                    trk.quality as verified_quality
-                FROM telegram_library_index idx
-                JOIN telegram_sources src ON idx.source_id = src.id
-                LEFT JOIN telegram_tracks trk ON (trk.telegram_message_id = idx.message_id AND trk.source_id = idx.source_id)
-                WHERE src.enabled = 1
-            `;
-
-            const params = [];
-
-            if (!cleanQuery) {
-                // Browse mode: return top ranked lossless/studio audio
-                sql += ` AND (idx.quality IN ('HI_RES_LOSSLESS', 'LOSSLESS') OR idx.format IN ('FLAC', 'WAV', 'flac', 'wav'))`;
-            } else {
-                const variations = this.getSearchVariations(cleanQuery);
-                const terms = variations[0].split(' ').filter(t => t.length > 1);
-                const conditions = [];
-
-                // Add conditions for search terms
-                for (const v of variations) {
-                    conditions.push(`(
-                        LOWER(idx.title) LIKE ? OR 
-                        LOWER(idx.artist) LIKE ? OR 
-                        LOWER(idx.file_name) LIKE ? OR
-                        LOWER(idx.album) LIKE ?
-                    )`);
-                    params.push(`%${v}%`, `%${v}%`, `%${v}%`, `%${v}%`);
-                }
-
-                if (terms.length > 0) {
-                    const termConditions = terms.map(term => {
-                        params.push(`%${term}%`, `%${term}%`, `%${term}%`);
-                        return `(LOWER(idx.title) LIKE ? OR LOWER(idx.artist) LIKE ? OR LOWER(idx.file_name) LIKE ?)`;
-                    });
-                    conditions.push(`(${termConditions.join(' AND ')})`);
-                }
-
-                if (conditions.length > 0) {
-                    sql += ` AND (${conditions.join(' OR ')})`;
-                }
-            }
-
-            // Order by:
-            // 1. Exact cached ready tracks first
-            // 2. Source priority (1 -> 2 -> 3)
-            // 3. Format/quality ranking (LOSSLESS > HIGH > STANDARD)
-            // 4. Message ID DESC
-            sql += `
-                ORDER BY 
-                    (CASE WHEN trk.status = 'READY' THEN 0 ELSE 1 END) ASC,
-                    src.priority ASC,
-                    (CASE 
-                        WHEN idx.quality = 'HI_RES_LOSSLESS' THEN 0
-                        WHEN idx.quality = 'LOSSLESS' THEN 1
-                        WHEN idx.quality = 'HIGH' THEN 2
-                        ELSE 3
-                    END) ASC,
-                    idx.message_id DESC
-                LIMIT ?
-            `;
-            params.push(Math.min(limit, 50));
-
-            const rows = getAll(db, sql, params);
-            return rows.map(r => this.normalizeIndexRow(r));
-        } catch (e) {
-            console.error('[TelegramProvider] Local search error:', e.message);
-            return [];
-        }
+        const telegramSourceManager = require('./telegramSourceManager');
+        return telegramSourceManager.searchAllSources(db, query, { limit });
     }
 
     /**
@@ -301,7 +381,9 @@ class TelegramProvider {
         const isPreparing = row.cached_status === 'PREPARING' || this.activeRetrievals.has(id);
 
         const status = isCached ? 'READY' : (isPreparing ? 'PREPARING' : 'MISSING');
-        const isLossless = (row.verified_quality || row.quality) === 'LOSSLESS' || (row.verified_quality || row.quality) === 'HI_RES_LOSSLESS';
+        const quality = row.verified_quality || (isCached ? (row.quality || 'LOSSLESS') : 'UNKNOWN');
+        const isLossless = quality === 'LOSSLESS' || quality === 'HI_RES_LOSSLESS';
+        const isHiRes = quality === 'HI_RES_LOSSLESS';
 
         const coverUrl = row.cached_cover_path
             ? `/api/telegram/cover/${row.cached_track_id || id}`
@@ -314,23 +396,29 @@ class TelegramProvider {
             source: 'telegram',
             sourceId: row.source_id,
             sourceName: row.source_name || 'Studio Master',
-            sourcePriority: row.source_priority || 1,
+            sourcePriority: Number(row.source_priority !== undefined ? row.source_priority : 1),
             chatId: row.chat_id,
+            telegramPeerId: row.source_peer_id || row.chat_id,
             messageId: row.message_id,
             fileId: row.file_id,
+            telegramDocumentId: row.file_id || String(row.message_id),
             fileName: row.file_name,
+            filename: row.file_name,
             title: row.title || 'Unknown Title',
             artist: row.artist || 'Unknown Artist',
             album: row.album || 'Studio Master',
-            duration: row.duration || 0,
-            fileSize: row.file_size || 0,
-            format: row.verified_codec || row.format || 'FLAC',
-            codec: row.verified_codec || row.codec || row.format || 'FLAC',
-            quality: row.verified_quality || row.quality || (isLossless ? 'LOSSLESS' : 'HIGH'),
-            sampleRate: row.verified_sample_rate || row.sample_rate || null,
-            bitDepth: row.verified_bit_depth || row.bit_depth || null,
-            bitrate: row.verified_bitrate || row.bitrate || null,
+            duration: Number(row.duration) || 0,
+            fileSize: Number(row.file_size) || 0,
+            messageDate: row.indexed_at || null,
+            format: row.verified_codec || row.format || 'AUDIO',
+            codec: row.verified_codec || (isCached ? row.codec : null),
+            quality,
+            sampleRate: row.verified_sample_rate || null,
+            bitDepth: row.verified_bit_depth || null,
+            bitrate: row.verified_bitrate || null,
             lossless: isLossless,
+            isLossless,
+            isHiRes,
             cover: coverUrl,
             cover_url: coverUrl,
             preview: streamUrl,
@@ -395,15 +483,18 @@ class TelegramProvider {
         // Set status to PREPARING
         this.retrievalProgress.set(trackId, { progressPercent: 5, status: 'CONNECTING', startedAt: Date.now() });
 
-        // Launch deduplicated background retrieval job
-        const jobPromise = this._executeRetrieval(trackId, indexRecord, source, db, saveDb);
+        // Launch deduplicated background retrieval job with robust error handling
+        const jobPromise = this._executeRetrieval(trackId, indexRecord, source, db, saveDb)
+            .catch(err => {
+                console.warn(`[TelegramProvider] Background retrieval failed for ${trackId}:`, err.message);
+                this.retrievalProgress.set(trackId, { progressPercent: 0, status: 'FAILED', error: err.message });
+            })
+            .finally(() => {
+                this.activeRetrievals.delete(trackId);
+                // Keep progress entry briefly for pollers before cleanup
+                setTimeout(() => this.retrievalProgress.delete(trackId), 5000);
+            });
         this.activeRetrievals.set(trackId, jobPromise);
-
-        // Clean up from map when finished
-        jobPromise.finally(() => {
-            this.activeRetrievals.delete(trackId);
-            this.retrievalProgress.delete(trackId);
-        });
 
         return {
             status: 'PREPARING',
@@ -426,159 +517,177 @@ class TelegramProvider {
         const tempFileName = `temp_${uuidv4().substring(0, 8)}_${indexRecord.file_name || 'track.flac'}`;
         const tempFilePath = path.join(this.tempDir, tempFileName);
 
-        try {
-            this.retrievalProgress.set(trackId, { progressPercent: 15, status: 'RESOLVING_MESSAGE' });
+        const MAX_RETRIES = 3;
+        let attempt = 0;
+        let lastError = null;
 
-            // Fetch message entity
-            const targetChat = source.chat_id || source.username;
-            const entity = await client.getEntity(targetChat);
-            const messages = await client.getMessages(entity, { ids: [indexRecord.message_id] });
+        while (attempt < MAX_RETRIES) {
+            attempt++;
+            try {
+                this.retrievalProgress.set(trackId, { progressPercent: 15, status: 'RESOLVING_MESSAGE', attempt });
 
-            if (!messages || messages.length === 0 || !messages[0].media) {
-                throw new Error(`Message ${indexRecord.message_id} with audio media not found in source`);
-            }
+                // Fetch message entity
+                const targetChat = source.chat_id || source.username;
+                const entity = await client.getEntity(targetChat);
+                const messages = await client.getMessages(entity, { ids: [indexRecord.message_id] });
 
-            const message = messages[0];
-            this.retrievalProgress.set(trackId, { progressPercent: 25, status: 'DOWNLOADING' });
+                if (!messages || messages.length === 0 || !messages[0].media) {
+                    throw new Error(`Message ${indexRecord.message_id} with audio media not found in source`);
+                }
 
-            // Download media to temp file
-            console.log(`[TelegramProvider] Downloading on-demand audio for "${indexRecord.title}" (message ${indexRecord.message_id})...`);
-            
-            const buffer = await client.downloadMedia(message, {
-                progressCallback: (downloaded, total) => {
-                    if (total && total > 0) {
-                        const pct = Math.min(Math.round((downloaded / total) * 60) + 25, 85);
-                        this.retrievalProgress.set(trackId, { progressPercent: pct, status: 'DOWNLOADING' });
+                const message = messages[0];
+                this.retrievalProgress.set(trackId, { progressPercent: 25, status: 'DOWNLOADING', attempt });
+
+                // Download media to temp file
+                console.log(`[TelegramProvider] Downloading on-demand audio (attempt ${attempt}/${MAX_RETRIES}) for "${indexRecord.title}" (message ${indexRecord.message_id})...`);
+                
+                const buffer = await client.downloadMedia(message, {
+                    progressCallback: (downloaded, total) => {
+                        if (total && total > 0) {
+                            const pct = Math.min(Math.round((downloaded / total) * 60) + 25, 85);
+                            this.retrievalProgress.set(trackId, { progressPercent: pct, status: 'DOWNLOADING', attempt });
+                        }
+                    }
+                });
+
+                if (!buffer || buffer.length === 0) {
+                    throw new Error('Downloaded audio buffer is empty');
+                }
+
+                fs.writeFileSync(tempFilePath, buffer);
+                this.retrievalProgress.set(trackId, { progressPercent: 88, status: 'ANALYZING' });
+
+                // 1. Compute SHA-256 content hash
+                const fileHash = crypto.createHash('sha256').update(buffer).digest('hex');
+
+                // 2. Check if track with this hash already exists (Deduplication)
+                const existingHashTrack = getOne(db, 'SELECT * FROM telegram_tracks WHERE file_hash = ?', [fileHash]);
+                if (existingHashTrack && fs.existsSync(existingHashTrack.file_path)) {
+                    console.log(`[TelegramProvider] Duplicate file detected via SHA-256 (${fileHash}). Linking to existing track.`);
+                    if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+
+                    runSql(db, `
+                        UPDATE telegram_tracks 
+                        SET telegram_message_id = ?, source_id = ?, status = 'READY', last_played_at = CURRENT_TIMESTAMP
+                        WHERE file_hash = ?
+                    `, [indexRecord.message_id, source.id, fileHash]);
+                    if (saveDb) saveDb();
+
+                    return this.normalizeRetrievedTrack(existingHashTrack);
+                }
+
+                // 3. Technical analysis with music-metadata
+                let mmResult = null;
+                try {
+                    const mm = await import('music-metadata');
+                    mmResult = await mm.parseFile(tempFilePath);
+                } catch (err) {
+                    console.warn('[TelegramProvider] music-metadata parse warning:', err.message);
+                }
+
+                const formatInfo = mmResult?.format || {};
+                const commonInfo = mmResult?.common || {};
+
+                const sampleRate = formatInfo.sampleRate || indexRecord.sample_rate || null;
+                const bitDepth = formatInfo.bitsPerSample || indexRecord.bit_depth || null;
+                const bitrate = formatInfo.bitrate || indexRecord.bitrate || null;
+                const channels = formatInfo.numberOfChannels || 2;
+                const duration = formatInfo.duration ? Math.round(formatInfo.duration) : (indexRecord.duration || 0);
+
+                const originalExt = path.extname(indexRecord.file_name || '').toLowerCase() || '.flac';
+                const detectedFormat = (formatInfo.container || originalExt.replace('.', '')).toUpperCase();
+                const codec = (formatInfo.codec || detectedFormat).toUpperCase();
+
+                // Quality classification: never label lossy as lossless
+                const isLosslessFormat = detectedFormat === 'FLAC' || detectedFormat === 'WAV' || detectedFormat === 'ALAC' || codec.includes('PCM');
+                let quality = 'HIGH';
+                if (isLosslessFormat) {
+                    if ((sampleRate && sampleRate > 48000) || (bitDepth && bitDepth > 16)) {
+                        quality = 'HI_RES_LOSSLESS';
+                    } else {
+                        quality = 'LOSSLESS';
+                    }
+                } else if (bitrate && bitrate >= 256000) {
+                    quality = 'HIGH';
+                } else {
+                    quality = 'STANDARD';
+                }
+
+                // Extract embedded artwork if present
+                let coverPath = null;
+                if (commonInfo.picture && commonInfo.picture.length > 0) {
+                    try {
+                        const pic = commonInfo.picture[0];
+                        const coverExt = pic.format?.includes('png') ? '.png' : '.jpg';
+                        const coverFileName = `${fileHash}${coverExt}`;
+                        const targetCoverPath = path.join(this.coversDir, coverFileName);
+                        fs.writeFileSync(targetCoverPath, pic.data);
+                        coverPath = path.join('uploads', 'telegram', 'covers', coverFileName);
+                    } catch (cErr) {
+                        console.warn('[TelegramProvider] Cover art extraction error:', cErr.message);
                     }
                 }
-            });
 
-            if (!buffer || buffer.length === 0) {
-                throw new Error('Downloaded audio buffer is empty');
-            }
+                // Move temp file to permanent storage: uploads/telegram/<fileHash>.<ext>
+                const permanentFileName = `${fileHash}${originalExt}`;
+                const permanentFilePath = path.join(this.uploadBaseDir, permanentFileName);
+                fs.renameSync(tempFilePath, permanentFilePath);
 
-            fs.writeFileSync(tempFilePath, buffer);
-            this.retrievalProgress.set(trackId, { progressPercent: 88, status: 'ANALYZING' });
+                const relativeFilePath = path.join('uploads', 'telegram', permanentFileName);
 
-            // 1. Compute SHA-256 content hash
-            const fileHash = crypto.createHash('sha256').update(buffer).digest('hex');
+                const title = commonInfo.title || indexRecord.title || 'Unknown Title';
+                const artist = commonInfo.artist || indexRecord.artist || 'Unknown Artist';
+                const album = commonInfo.album || indexRecord.album || 'Studio Master';
+                const year = commonInfo.year || indexRecord.year || null;
 
-            // 2. Check if track with this hash already exists (Deduplication)
-            const existingHashTrack = getOne(db, 'SELECT * FROM telegram_tracks WHERE file_hash = ?', [fileHash]);
-            if (existingHashTrack && fs.existsSync(existingHashTrack.file_path)) {
-                console.log(`[TelegramProvider] Duplicate file detected via SHA-256 (${fileHash}). Linking to existing track.`);
-                if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-
+                // Insert or update into telegram_tracks
                 runSql(db, `
-                    UPDATE telegram_tracks 
-                    SET telegram_message_id = ?, source_id = ?, status = 'READY', last_played_at = CURRENT_TIMESTAMP
-                    WHERE file_hash = ?
-                `, [indexRecord.message_id, source.id, fileHash]);
+                    INSERT INTO telegram_tracks (
+                        id, source_id, telegram_chat_id, telegram_message_id, telegram_file_id,
+                        file_hash, original_file_name, title, artist, album, year,
+                        duration, file_path, cover_path, format, codec, quality,
+                        sample_rate, bit_depth, bitrate, channels, file_size, status, last_played_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'READY', CURRENT_TIMESTAMP)
+                    ON CONFLICT(file_hash) DO UPDATE SET
+                        status = 'READY',
+                        last_played_at = CURRENT_TIMESTAMP
+                `, [
+                    trackId, source.id, String(source.chat_id), indexRecord.message_id, indexRecord.file_id || String(indexRecord.message_id || 'doc'),
+                    fileHash, indexRecord.file_name, title, artist, album, year,
+                    duration, relativeFilePath, coverPath, detectedFormat, codec, quality,
+                    sampleRate, bitDepth, bitrate, channels, buffer.length
+                ]);
+
                 if (saveDb) saveDb();
 
-                return this.normalizeRetrievedTrack(existingHashTrack);
-            }
+                // Record successful retrieval in telegram_sources health tracking
+                const telegramSourceManager = require('./telegramSourceManager');
+                telegramSourceManager.recordRetrievalSuccess(db, saveDb, source.id);
 
-            // 3. Technical analysis with music-metadata
-            let mmResult = null;
-            try {
-                const mm = await import('music-metadata');
-                mmResult = await mm.parseFile(tempFilePath);
+                // Perform LRU cache eviction check in background
+                this.enforceCacheLimits(db, saveDb).catch(cErr => {
+                    console.warn('[TelegramProvider] Cache enforcement error:', cErr.message);
+                });
+
+                console.log(`[TelegramProvider] Successfully retrieved & cached "${title}" (${quality} ${sampleRate ? sampleRate + 'Hz' : ''})`);
+
+                const savedRow = getOne(db, 'SELECT * FROM telegram_tracks WHERE file_hash = ?', [fileHash]);
+                return this.normalizeRetrievedTrack(savedRow);
             } catch (err) {
-                console.warn('[TelegramProvider] music-metadata parse warning:', err.message);
-            }
-
-            const formatInfo = mmResult?.format || {};
-            const commonInfo = mmResult?.common || {};
-
-            const sampleRate = formatInfo.sampleRate || indexRecord.sample_rate || null;
-            const bitDepth = formatInfo.bitsPerSample || indexRecord.bit_depth || null;
-            const bitrate = formatInfo.bitrate || indexRecord.bitrate || null;
-            const channels = formatInfo.numberOfChannels || 2;
-            const duration = formatInfo.duration ? Math.round(formatInfo.duration) : (indexRecord.duration || 0);
-
-            const originalExt = path.extname(indexRecord.file_name || '').toLowerCase() || '.flac';
-            const detectedFormat = (formatInfo.container || originalExt.replace('.', '')).toUpperCase();
-            const codec = (formatInfo.codec || detectedFormat).toUpperCase();
-
-            // Quality classification: never label lossy as lossless
-            const isLosslessFormat = detectedFormat === 'FLAC' || detectedFormat === 'WAV' || detectedFormat === 'ALAC' || codec.includes('PCM');
-            let quality = 'HIGH';
-            if (isLosslessFormat) {
-                if ((sampleRate && sampleRate > 48000) || (bitDepth && bitDepth > 16)) {
-                    quality = 'HI_RES_LOSSLESS';
-                } else {
-                    quality = 'LOSSLESS';
+                lastError = err;
+                console.warn(`[TelegramProvider] Retrieval attempt ${attempt}/${MAX_RETRIES} failed for ${trackId}: ${err.message}`);
+                if (fs.existsSync(tempFilePath)) {
+                    try { fs.unlinkSync(tempFilePath); } catch (e) {}
                 }
-            } else if (bitrate && bitrate >= 256000) {
-                quality = 'HIGH';
-            } else {
-                quality = 'STANDARD';
-            }
-
-            // Extract embedded artwork if present
-            let coverPath = null;
-            if (commonInfo.picture && commonInfo.picture.length > 0) {
-                try {
-                    const pic = commonInfo.picture[0];
-                    const coverExt = pic.format?.includes('png') ? '.png' : '.jpg';
-                    const coverFileName = `${fileHash}${coverExt}`;
-                    const targetCoverPath = path.join(this.coversDir, coverFileName);
-                    fs.writeFileSync(targetCoverPath, pic.data);
-                    coverPath = path.join('uploads', 'telegram', 'covers', coverFileName);
-                } catch (cErr) {
-                    console.warn('[TelegramProvider] Cover art extraction error:', cErr.message);
+                if (attempt < MAX_RETRIES) {
+                    this.retrievalProgress.set(trackId, { progressPercent: 10, status: 'RETRYING', attempt });
+                    await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
                 }
             }
-
-            // Move temp file to permanent storage: uploads/telegram/<fileHash>.<ext>
-            const permanentFileName = `${fileHash}${originalExt}`;
-            const permanentFilePath = path.join(this.uploadBaseDir, permanentFileName);
-            fs.renameSync(tempFilePath, permanentFilePath);
-
-            const relativeFilePath = path.join('uploads', 'telegram', permanentFileName);
-
-            const title = commonInfo.title || indexRecord.title || 'Unknown Title';
-            const artist = commonInfo.artist || indexRecord.artist || 'Unknown Artist';
-            const album = commonInfo.album || indexRecord.album || 'Studio Master';
-            const year = commonInfo.year || indexRecord.year || null;
-
-            // Insert or update into telegram_tracks
-            runSql(db, `
-                INSERT INTO telegram_tracks (
-                    id, source_id, telegram_chat_id, telegram_message_id, telegram_file_id,
-                    file_hash, original_file_name, title, artist, album, year,
-                    duration, file_path, cover_path, format, codec, quality,
-                    sample_rate, bit_depth, bitrate, channels, file_size, status, last_played_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'READY', CURRENT_TIMESTAMP)
-                ON CONFLICT(file_hash) DO UPDATE SET
-                    status = 'READY',
-                    last_played_at = CURRENT_TIMESTAMP
-            `, [
-                trackId, source.id, String(source.chat_id), indexRecord.message_id, indexRecord.file_id || String(indexRecord.message_id || 'doc'),
-                fileHash, indexRecord.file_name, title, artist, album, year,
-                duration, relativeFilePath, coverPath, detectedFormat, codec, quality,
-                sampleRate, bitDepth, bitrate, channels, buffer.length
-            ]);
-
-            if (saveDb) saveDb();
-
-            // Perform LRU cache eviction check in background
-            this.enforceCacheLimits(db, saveDb).catch(cErr => {
-                console.warn('[TelegramProvider] Cache enforcement error:', cErr.message);
-            });
-
-            console.log(`[TelegramProvider] Successfully retrieved & cached "${title}" (${quality} ${sampleRate ? sampleRate + 'Hz' : ''})`);
-
-            const savedRow = getOne(db, 'SELECT * FROM telegram_tracks WHERE file_hash = ?', [fileHash]);
-            return this.normalizeRetrievedTrack(savedRow);
-        } catch (err) {
-            console.error(`[TelegramProvider] Retrieval failed for ${trackId}:`, err.message);
-            if (fs.existsSync(tempFilePath)) {
-                try { fs.unlinkSync(tempFilePath); } catch (e) {}
-            }
-            throw err;
         }
+
+        console.error(`[TelegramProvider] All ${MAX_RETRIES} retrieval attempts failed for ${trackId}:`, lastError.message);
+        throw lastError;
     }
 
     /**
@@ -634,7 +743,9 @@ class TelegramProvider {
      */
     handleStreamRequest(req, res, db) {
         const trackId = req.params.id;
-        if (!trackId) return res.status(400).json({ error: 'Track ID is required' });
+        if (!trackId || typeof trackId !== 'string' || trackId.length > 128 || !/^[a-zA-Z0-9_\-\.]+$/.test(trackId)) {
+            return res.status(400).json({ error: 'Invalid track ID format' });
+        }
 
         // 1. Check if track is registered in telegram_tracks
         let track = getOne(db, `
@@ -670,6 +781,12 @@ class TelegramProvider {
             console.error(`[Telegram Stream] Storage file missing: ${filePath}`);
             return res.status(404).json({ error: 'Audio file not found on storage disk' });
         }
+
+        // Track active streaming to protect against eviction
+        this.activeStreams.add(track.id);
+        const onStreamDone = () => this.activeStreams.delete(track.id);
+        res.on('finish', onStreamDone);
+        res.on('close', onStreamDone);
 
         // 5. Update last_played_at for LRU
         runSql(db, 'UPDATE telegram_tracks SET last_played_at = CURRENT_TIMESTAMP WHERE id = ?', [track.id]);
@@ -728,7 +845,8 @@ class TelegramProvider {
     /**
      * LRU Cache Eviction:
      * When uploads/telegram/ exceeds MAX_TELEGRAM_CACHE_GB,
-     * deletes the least-recently-played tracks to free space.
+     * deletes the least-recently-played tracks to free space,
+     * protecting active streams, active retrievals, liked tracks, and playlist tracks.
      */
     async enforceCacheLimits(db, saveDb) {
         if (!db) return;
@@ -747,10 +865,13 @@ class TelegramProvider {
 
             console.log(`[TelegramProvider] Cache size (${totalGb.toFixed(2)} GB) exceeds limit (${this.maxCacheGb} GB). Running LRU eviction...`);
 
-            // Fetch tracks ordered by last_played_at ASC
+            // Fetch tracks ordered by last_played_at ASC, protecting liked tracks and playlist tracks
             const candidates = getAll(db, `
                 SELECT id, file_path, file_size 
                 FROM telegram_tracks 
+                WHERE status = 'READY'
+                  AND id NOT IN (SELECT track_id FROM liked_tracks WHERE track_source = 'telegram')
+                  AND id NOT IN (SELECT track_id FROM playlist_tracks WHERE track_source = 'telegram')
                 ORDER BY last_played_at ASC, created_at ASC
             `);
 
@@ -758,6 +879,10 @@ class TelegramProvider {
 
             for (const item of candidates) {
                 if (bytesToFree <= 0) break;
+                // Protect currently playing, active retrievals, and active streams
+                if (this.activeRetrievals.has(item.id) || this.activeStreams.has(item.id)) {
+                    continue;
+                }
                 const safeName = path.basename(item.file_path);
                 const fullPath = path.join(this.uploadBaseDir, safeName);
 

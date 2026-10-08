@@ -82,6 +82,9 @@ class YouTubeAudioPlayer {
         this.currentVideoId = videoId;
         if (this.isReady && this.player && typeof this.player.loadVideoById === 'function') {
             this.player.loadVideoById(videoId);
+            if (typeof this.player.playVideo === 'function') {
+                this.player.playVideo();
+            }
         } else {
             console.warn('YouTube Player not ready yet. Will play when ready.');
             // Save it to play once ready
@@ -90,6 +93,9 @@ class YouTubeAudioPlayer {
                 if (oldReady) oldReady();
                 if (this.player && typeof this.player.loadVideoById === 'function') {
                     this.player.loadVideoById(videoId);
+                    if (typeof this.player.playVideo === 'function') {
+                        this.player.playVideo();
+                    }
                 }
             };
         }
@@ -128,6 +134,10 @@ class YouTubeAudioPlayer {
 
     getDuration() {
         return this.isReady && this.player && typeof this.player.getDuration === 'function' ? this.player.getDuration() : 0;
+    }
+
+    getVideoLoadedFraction() {
+        return this.isReady && this.player && typeof this.player.getVideoLoadedFraction === 'function' ? this.player.getVideoLoadedFraction() : 0;
     }
 }
 

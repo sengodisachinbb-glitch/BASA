@@ -29,6 +29,73 @@ function classifyAudioQuality(metadata) {
     return 'UNKNOWN';
 }
 
+// Smart Local Library Classification (Feature D)
+function classifyMediaType(metadata, filename = '') {
+    if (!metadata) return 'UNKNOWN';
+
+    const duration = metadata.format?.duration ? Number(metadata.format.duration) : 0;
+    const codec = (metadata.format?.codec || '').toLowerCase();
+    const fname = (filename || '').toLowerCase();
+    const title = (metadata.common?.title || '').toLowerCase();
+    const artist = (metadata.common?.artist || '').toLowerCase();
+    const album = (metadata.common?.album || '').toLowerCase();
+
+    // Heuristic patterns for voice notes & recordings
+    const isVoicePattern = /^(?:ptt[_\-]|aud[_\-]|voice[_\-\s]?|audio[_\s\-]*record|memo|speech)/i.test(fname) ||
+                           /^(?:ptt[_\-]|aud[_\-]|voice|memo)/i.test(title);
+    const isRecordingPattern = /^(?:recording|new[_\s\-]*recording|call[_\s\-]*rec|rec[_\-])/i.test(fname) ||
+                               /^(?:recording|new[_\s\-]*recording|call[_\s\-]*rec|rec[_\-])/i.test(title);
+
+    // Check voice codecs (AMR, Speex, G.711)
+    const isVoiceCodec = ['amr', 'speex', 'g711', 'silk'].includes(codec);
+
+    // Check if rich music tags exist (excluding automated voice/recording names)
+    const hasMusicMetadata = Boolean(
+        (title && !isVoicePattern && !isRecordingPattern) ||
+        (artist && artist !== 'unknown artist' && !artist.startsWith('audio')) ||
+        album
+    );
+
+    // 1. Definite Voice Notes
+    if ((isVoicePattern || isVoiceCodec) && !hasMusicMetadata && duration < 120) {
+        return 'VOICE_NOTE';
+    }
+
+    // 2. Generic Non-Music Recordings
+    if (isRecordingPattern && !hasMusicMetadata && duration < 300) {
+        return 'RECORDING';
+    }
+
+    // 3. Lossless/Hi-Res files (FLAC, ALAC, WAV) with music indicators or reasonable length
+    const isLosslessCodec = metadata.format?.lossless || ['flac', 'alac', 'wav'].includes(codec);
+    if (isLosslessCodec && (hasMusicMetadata || duration >= 25)) {
+        return 'MUSIC';
+    }
+
+    // 4. Any file with verified music metadata (including short intros/clips >= 5s)
+    if (hasMusicMetadata && duration >= 5) {
+        return 'MUSIC';
+    }
+
+    // 5. Standard music length (>= 30s) and standard sample rate (>= 44.1 kHz)
+    const sampleRate = metadata.format?.sampleRate || 0;
+    if (duration >= 30 && sampleRate >= 44100 && !isVoicePattern && !isRecordingPattern) {
+        return 'MUSIC';
+    }
+
+    // 6. Very short files with no music tags (< 15s)
+    if (duration > 0 && duration < 15 && !hasMusicMetadata) {
+        return 'RECORDING';
+    }
+
+    // Fallback: If duration is typical song length
+    if (duration >= 45) {
+        return 'MUSIC';
+    }
+
+    return 'UNKNOWN';
+}
+
 
 const router = express.Router();
 
@@ -61,9 +128,9 @@ const upload = multer({
     storage,
     limits: { fileSize: 100 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
-        const allowed = ['.mp3', '.m4a', '.wav', '.ogg', '.flac'];
+        const allowed = ['.mp3', '.m4a', '.wav', '.ogg', '.flac', '.alac', '.caf', '.aac'];
         if (allowed.includes(path.extname(file.originalname).toLowerCase())) cb(null, true);
-        else cb(new Error('Only audio files are allowed'));
+        else cb(new Error('Only audio files are allowed (.mp3, .m4a, .wav, .ogg, .flac, .alac, .aac)'));
     }
 });
 
@@ -88,6 +155,8 @@ router.post('/', upload.single('audio'), async (req, res) => {
     let audioChannels = null;
     let audioDuration = 0;
     let coverFilename = null;
+    let classification = 'UNKNOWN';
+    let isMusic = 1;
 
     const filePath = path.join(__dirname, '..', 'uploads', req.file.filename);
     const coversDir = path.join(__dirname, '..', 'uploads', 'covers');
@@ -101,7 +170,15 @@ router.post('/', upload.single('audio'), async (req, res) => {
         
         audioFormat = metadata.format.container || metadata.format.formatId || path.extname(req.file.originalname).replace('.', '').toUpperCase();
         audioCodec = metadata.format.codec || null;
-        audioLossless = metadata.format.lossless ? 1 : 0;
+        
+        // Accurate ALAC handling (can be packaged in m4a container)
+        if (String(audioCodec).toUpperCase().includes('ALAC') || String(audioFormat).toUpperCase() === 'ALAC') {
+            audioFormat = 'ALAC';
+            audioLossless = 1;
+        } else {
+            audioLossless = metadata.format.lossless ? 1 : 0;
+        }
+
         audioSampleRate = metadata.format.sampleRate || null;
         audioBitDepth = metadata.format.bitsPerSample || null;
         audioBitrate = metadata.format.bitrate || null;
@@ -110,11 +187,14 @@ router.post('/', upload.single('audio'), async (req, res) => {
 
         audioQuality = classifyAudioQuality({
             format: audioFormat,
-            lossless: metadata.format.lossless,
+            lossless: audioLossless === 1,
             sampleRate: audioSampleRate,
             bitDepth: audioBitDepth,
             bitrate: audioBitrate
         });
+
+        classification = classifyMediaType(metadata, req.file.originalname);
+        isMusic = classification === 'MUSIC' ? 1 : 0;
 
         if (metadata.common.picture && metadata.common.picture.length > 0) {
             const picture = metadata.common.picture[0];
@@ -132,11 +212,13 @@ router.post('/', upload.single('audio'), async (req, res) => {
         console.error('Metadata extraction error:', err);
     }
 
+
+
     runSql(db, `INSERT INTO uploaded_tracks 
-        (id, user_id, title, artist, album, duration, file_path, cover_url, format, codec, quality, lossless, sampleRate, bitDepth, bitrate, channels) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, user_id, title, artist, album, duration, file_path, cover_url, format, codec, quality, lossless, sampleRate, bitDepth, bitrate, channels, classification, is_music) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [id, req.user.id, trackTitle, artist || 'Unknown Artist', album || 'Unknown Album', audioDuration, req.file.filename, coverFilename,
-         audioFormat, audioCodec, audioQuality, audioLossless, audioSampleRate, audioBitDepth, audioBitrate, audioChannels]);
+         audioFormat, audioCodec, audioQuality, audioLossless, audioSampleRate, audioBitDepth, audioBitrate, audioChannels, classification, isMusic]);
     req.app.locals.saveDb();
 
     const track = getOne(db, 'SELECT * FROM uploaded_tracks WHERE id = ?', [id]);
@@ -169,6 +251,7 @@ router.get('/stream/:id', (req, res) => {
     
     if (formatStr === 'flac' || ext === '.flac') mimeType = 'audio/flac';
     else if (formatStr === 'wav' || ext === '.wav') mimeType = 'audio/wav';
+    else if (formatStr === 'alac' || ext === '.alac') mimeType = 'audio/mp4; codecs="alac"';
     else if (formatStr === 'ogg' || ext === '.ogg') mimeType = 'audio/ogg';
     else if (formatStr === 'm4a' || ext === '.m4a') mimeType = 'audio/mp4';
     else if (formatStr === 'aac' || ext === '.aac') mimeType = 'audio/aac';
@@ -240,4 +323,5 @@ router.get('/cover/:id', (req, res) => {
     fs.createReadStream(coverPath).pipe(res);
 });
 
+router.classifyMediaType = classifyMediaType;
 module.exports = router;

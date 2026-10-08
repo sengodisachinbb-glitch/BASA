@@ -3,11 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BASA</title>
+    <title>BASA — Premium Music Streaming</title>
+    <link rel="icon" type="image/png" href="/favicon.png">
+    <link rel="apple-touch-icon" href="/logo-mark.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=2.2.1">
 </head>
 <body>
     <!-- 1. Background (animated orbs) -->
@@ -25,12 +27,12 @@
         <nav id="navbar" class="navbar glass-subtle">
             <div class="nav-inner">
                 <a href="#home" class="logo">
-                    <div class="logo-mark"></div>
-                    <span>BASA</span>
+                    <img src="/logo-mark.png" alt="BASA" class="logo-img">
+                    <span class="logo-text">BASA</span>
                 </a>
                 <div class="search-wrapper">
                     <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                    <input type="text" id="search-input" placeholder="Search songs, artists, albums..." autocomplete="off">
+                    <input type="text" id="search-input" class="search-input" placeholder="Search songs, artists, albums..." autocomplete="off">
                     <select id="quality-filter" class="quality-selector" title="Audio Quality">
                         <option value="AUTO">Auto (Best Available)</option>
                         <option value="HIGH">High Quality</option>
@@ -40,6 +42,8 @@
                 </div>
                 <div class="nav-actions">
                     <button id="upload-nav-btn" class="nav-button" title="Upload Music">↑ Upload</button>
+                    <button id="pipeline-nav-btn" class="nav-button" title="Audio Pipeline Inspector" onclick="openPipelineInspectorModal()">⚡ Pipeline</button>
+                    <button id="audio-settings-nav-btn" class="nav-button" title="Audio Settings" onclick="openAudioSettingsModal()">⚙ Settings</button>
                     <button id="auth-btn" class="nav-button" title="Sign In">Sign In</button>
                     <div id="user-menu" class="user-menu hidden">
                         <div id="user-avatar" class="user-avatar">U</div>
@@ -100,6 +104,43 @@
 
                 <!-- HOME VIEW -->
                 <div id="view-home" class="view active">
+                    <!-- 1. PERSONALIZED RECOMMENDATIONS -->
+                    <section class="content-section" id="recommended-section">
+                        <div class="section-header-flex">
+                            <div>
+                                <h2 class="section-title" style="margin-bottom: 4px;">🎧 Recommended For You</h2>
+                                <p class="section-subtitle" id="recommended-subtitle">Curated from your meaningful listening history</p>
+                            </div>
+                            <span class="taste-badge" id="taste-detected-badge" style="display:none;">Tamil Taste</span>
+                        </div>
+                        <div id="recommended-grid" class="track-grid">
+                            <div class="grid-skeleton">Loading recommendations...</div>
+                        </div>
+                    </section>
+
+                    <!-- 2. LANGUAGE-AWARE NEW RELEASES -->
+                    <section class="content-section" id="new-releases-section">
+                        <div class="section-header-flex">
+                            <div>
+                                <h2 class="section-title" style="margin-bottom: 4px;">✨ New Releases in <span id="new-releases-lang-title">Tamil</span></h2>
+                                <p class="section-subtitle" id="new-releases-subtitle">Showing Tamil releases</p>
+                            </div>
+                            <div class="lang-pills-wrapper" id="lang-pills-container" role="toolbar" aria-label="Filter new releases by language">
+                                <button type="button" class="lang-pill active" data-lang="Tamil" aria-pressed="true">Tamil</button>
+                                <button type="button" class="lang-pill" data-lang="English" aria-pressed="false">English</button>
+                                <button type="button" class="lang-pill" data-lang="Hindi" aria-pressed="false">Hindi</button>
+                                <button type="button" class="lang-pill" data-lang="Telugu" aria-pressed="false">Telugu</button>
+                                <button type="button" class="lang-pill" data-lang="Malayalam" aria-pressed="false">Malayalam</button>
+                                <button type="button" class="lang-pill" data-lang="Kannada" aria-pressed="false">Kannada</button>
+                                <button type="button" class="lang-pill" data-lang="Punjabi" aria-pressed="false">Punjabi</button>
+                            </div>
+                        </div>
+                        <div id="new-releases-grid" class="track-grid">
+                            <div class="grid-skeleton">Verifying new releases...</div>
+                        </div>
+                    </section>
+
+                    <!-- 3. TRENDING NOW -->
                     <section class="content-section">
                         <h2 class="section-title">🔥 Trending Now</h2>
                         <div id="charts-grid" class="track-grid"></div>
@@ -247,10 +288,11 @@
                         </div>
                     </div>
 
-                    <!-- Vault Tabs: Sources | Request Queue -->
+                    <!-- Vault Tabs: Sources | Request Queue | Verified Lossless Library (Section 18) -->
                     <div class="vault-tabs">
                         <button id="vault-tab-sources" class="vault-tab-btn active" onclick="switchVaultTab('sources')">Connected Audio Sources</button>
                         <button id="vault-tab-requests" class="vault-tab-btn" onclick="switchVaultTab('requests')">Master Request Queue <span id="vault-request-count" class="queue-badge">0</span></button>
+                        <button id="vault-tab-library" class="vault-tab-btn" onclick="switchVaultTab('library')">Verified Lossless Library <span id="vault-library-count" class="queue-badge">0</span></button>
                     </div>
 
                     <!-- Tab 1: Sources -->
@@ -277,9 +319,45 @@
                             <div class="loader">Loading requests...</div>
                         </div>
                     </div>
+
+                    <!-- Tab 3: Verified Lossless Library (Section 18) -->
+                    <div id="vault-view-library" class="vault-tab-view hidden">
+                        <div class="vault-section-header">
+                            <div>
+                                <h3>Verified Lossless Library</h3>
+                                <p style="font-size:12px; color:var(--text-secondary); margin-top:2px;">
+                                    Strictly contains verified FLAC &amp; Hi-Res lossless tracks backed by container &amp; bitstream verification.
+                                </p>
+                            </div>
+                            <div style="display:flex;gap:8px;">
+                                <input type="text" id="lossless-library-search" placeholder="Search verified tracks..." class="form-input" style="font-size:12px; padding:4px 10px; width:180px;" oninput="filterLosslessLibrary(this.value)">
+                                <button class="button button-secondary" style="font-size:12px; padding:4px 10px;" onclick="loadLosslessLibrary()">↻ Refresh</button>
+                            </div>
+                        </div>
+                        <!-- Filter Pills (Section 18) -->
+                        <div class="lang-pills-wrapper" style="margin-bottom: 14px;">
+                            <button class="lang-pill active" data-filter="all" onclick="setLosslessLibraryFilter('all', this)">All</button>
+                            <button class="lang-pill" data-filter="hires" onclick="setLosslessLibraryFilter('hires', this)">Hi-Res</button>
+                            <button class="lang-pill" data-filter="lossless" onclick="setLosslessLibraryFilter('lossless', this)">Lossless</button>
+                            <button class="lang-pill" data-filter="cached" onclick="setLosslessLibraryFilter('cached', this)">Recently Cached</button>
+                            <button class="lang-pill" data-filter="local" onclick="setLosslessLibraryFilter('local', this)">Local FLAC</button>
+                            <button class="lang-pill" data-filter="telegram" onclick="setLosslessLibraryFilter('telegram', this)">Telegram FLAC</button>
+                        </div>
+                        <div id="vault-library-list" class="track-list">
+                            <div class="loader">Loading verified lossless tracks...</div>
+                        </div>
+                    </div>
                 </div>
 
             </main>
+        <!-- Lossless Upgrade Available Banner (Section 12) -->
+        <div id="lossless-upgrade-banner" class="lossless-upgrade-banner hidden">
+            <div class="upgrade-banner-content">
+                <span class="upgrade-sparkle">◆</span>
+                <span class="upgrade-text" id="upgrade-banner-text">Lossless available · Switch to FLAC</span>
+                <button id="upgrade-switch-btn" class="button button-primary upgrade-btn" onclick="executeManualLosslessUpgrade()">Switch to FLAC</button>
+                <button class="upgrade-dismiss-btn" onclick="dismissLosslessUpgradeBanner()" title="Dismiss">✕</button>
+            </div>
         </div>
 
         <!-- 5. Player Bar (fixed bottom, glass-premium with prismatic) -->
@@ -293,32 +371,41 @@
                 </div>
                 <div class="player-track-text">
                     <span id="player-title" class="player-title">Not Playing</span>
-                    <span id="player-artist" class="player-artist">Select a track</span>
+                    <div class="player-artist-badge-row" style="display:flex; align-items:center; gap:6px;">
+                        <span id="player-artist" class="player-artist">Select a track</span>
+                        <div id="player-quality-badge-container"></div>
+                    </div>
                 </div>
                 <button id="player-like-btn" class="player-like-btn" title="Like" onclick="event.stopPropagation();">♡</button>
             </div>
 
-            <!-- Controls -->
-            <div class="player-controls">
-                <button id="shuffle-btn" class="player-ctrl-btn" title="Shuffle">⇄</button>
-                <button id="prev-btn" class="player-ctrl-btn" title="Previous">⏮</button>
-                <button id="play-btn" class="player-play-btn" title="Play">▶</button>
-                <button id="next-btn" class="player-ctrl-btn" title="Next">⏭</button>
-                <button id="repeat-btn" class="player-ctrl-btn" title="Repeat">↻</button>
-            </div>
-
-            <!-- Progress -->
-            <div class="player-progress">
-                <span id="current-time" class="player-time">0:00</span>
-                <div class="progress-bar-wrapper">
-                    <input type="range" id="progress-bar" class="progress-bar" min="0" max="100" value="0" step="0.1">
-                    <div id="progress-fill" class="progress-fill"></div>
+            <!-- Center: Controls & Progress -->
+            <div class="player-center">
+                <div class="player-controls">
+                    <button id="shuffle-btn" class="player-ctrl-btn" title="Shuffle">⇄</button>
+                    <button id="prev-btn" class="player-ctrl-btn" title="Previous">⏮</button>
+                    <button id="play-btn" class="player-play-btn" title="Play">▶</button>
+                    <button id="next-btn" class="player-ctrl-btn" title="Next">⏭</button>
+                    <button id="repeat-btn" class="player-ctrl-btn" title="Repeat">↻</button>
                 </div>
-                <span id="total-time" class="player-time">0:00</span>
+
+                <div class="player-progress">
+                    <span id="current-time" class="player-time">0:00</span>
+                    <div class="progress-bar-wrapper">
+                        <div id="progress-buffer" class="progress-buffer"></div>
+                        <div id="progress-fill" class="progress-fill"></div>
+                        <input type="range" id="progress-bar" class="progress-bar" min="0" max="100" value="0" step="0.1" aria-label="Seek track">
+                    </div>
+                    <span id="total-time" class="player-time">0:00</span>
+                </div>
             </div>
 
             <!-- Volume & Queue -->
             <div class="player-volume">
+                <button id="player-ab-btn" class="ab-toggle-btn dsp-mode" title="A/B Compare: State A (DIRECT / DSP BYPASS) vs State B (DSP ENABLED)" onclick="toggleABMode()">B: DSP</button>
+                <button id="pipeline-player-btn" class="player-ctrl-btn" title="Inspect Audio Pipeline" onclick="openPipelineInspectorModal()">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                </button>
                 <button id="queue-btn" class="player-ctrl-btn" title="Queue (Up Next & Previous Songs)" aria-label="Open Queue">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <line x1="8" y1="6" x2="21" y2="6"></line>
@@ -348,22 +435,82 @@
 
             <!-- Top Controls -->
             <div class="fs-top-bar">
-                <button id="fs-close-btn" class="fs-icon-btn" aria-label="Close full screen player">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-                </button>
+                <div class="fs-brand" id="fs-brand-btn" title="BASA High-Fidelity Music">
+                    <img src="/logo-mark.png" alt="BASA" class="fs-logo-img">
+                    <span class="fs-brand-name">BASA</span>
+                </div>
                 <div class="fs-top-actions">
-                    <button id="fs-queue-btn" class="fs-icon-btn" aria-label="Toggle Queue" title="Queue">
+                    <button id="fs-queue-btn" class="fs-icon-btn" aria-label="Toggle Queue" title="Queue (Up Next)">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
                     </button>
-                    <button id="fs-options-btn" class="fs-icon-btn" aria-label="More options">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+                    <button id="fs-fullscreen-toggle-btn" class="fs-icon-btn" aria-label="Toggle Fullscreen" title="Toggle Fullscreen (F)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="fs-fs-icon">
+                            <polyline points="15 3 21 3 21 9"/>
+                            <polyline points="9 21 3 21 3 15"/>
+                            <line x1="21" y1="3" x2="14" y2="10"/>
+                            <line x1="3" y1="21" x2="10" y2="14"/>
+                        </svg>
                     </button>
+                    <button id="fs-close-btn" class="fs-icon-btn fs-close-btn-cross" aria-label="Close full screen player" title="Close (Esc)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+
+                    <!-- More Options Dropdown Menu -->
+                    <div id="fs-options-menu" class="fs-options-menu glass-floating hidden" aria-hidden="true">
+                        <div class="fs-options-header">
+                            <span class="fs-options-track-name" id="fs-options-track-name">Track Options</span>
+                        </div>
+                        <div class="fs-options-list">
+                            <button type="button" class="fs-option-item" id="fs-opt-like">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="fs-heart-icon">
+                                    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                                </svg>
+                                <span id="fs-opt-like-text">Add to Favorites</span>
+                            </button>
+                            <button type="button" class="fs-option-item" id="fs-opt-shuffle">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
+                                <span>Shuffle Playback</span>
+                            </button>
+                            <button type="button" class="fs-option-item" id="fs-opt-repeat">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                                <span id="fs-opt-repeat-text">Repeat: Off</span>
+                            </button>
+                            <div class="fs-option-divider"></div>
+                            <button type="button" class="fs-option-item" id="fs-opt-pipeline" onclick="openPipelineInspectorModal()">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                                <span>Audio Pipeline Inspector</span>
+                            </button>
+                            <button type="button" class="fs-option-item" id="fs-opt-sources">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h2M6 8h2M10 4h2M14 6h2M18 10h2M22 12h2M6 16h2M10 20h2M14 18h2M18 14h2"/></svg>
+                                <span>Audio Sources &amp; Lossless</span>
+                            </button>
+                            <button type="button" class="fs-option-item" id="fs-opt-settings">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                                <span>Playback &amp; Quality Settings</span>
+                            </button>
+                            <button type="button" class="fs-option-item" id="fs-opt-request">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                                <span>Request Lossless Master</span>
+                            </button>
+                            <button type="button" class="fs-option-item" id="fs-opt-download">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                <span>Download Audio</span>
+                            </button>
+                            <button type="button" class="fs-option-item" id="fs-opt-share">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                                <span>Copy Track Info / Share</span>
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <div class="fs-split-layout">
-                <!-- Left: Album Art & Controls -->
-                <div class="fs-col-left">
+            <div class="fs-split-layout fs-mode-artwork" id="fs-layout-container">
+                <!-- Main Column: Album Art, Info & Controls -->
+                <div class="fs-col-left" id="fs-col-left">
                     <div class="fs-cover-wrapper" id="fs-cover-wrapper">
                         <img id="fs-cover-image" src="" alt="Album Cover" crossorigin="anonymous">
                     </div>
@@ -379,49 +526,93 @@
                     <div class="fs-progress-area">
                         <span id="fs-current-time" class="fs-time">0:00</span>
                         <div class="progress-bar-wrapper fs-progress-wrapper">
-                            <input type="range" id="fs-progress-bar" class="progress-bar" min="0" max="100" value="0" step="0.1" aria-label="Seek progress">
+                            <div id="fs-progress-buffer" class="progress-buffer"></div>
                             <div id="fs-progress-fill" class="progress-fill"></div>
+                            <input type="range" id="fs-progress-bar" class="progress-bar" min="0" max="100" value="0" step="0.1" aria-label="Seek progress">
                         </div>
-                        <span id="fs-total-time" class="fs-time">0:00</span>
+                        <span id="fs-total-time" class="fs-time fs-time-remaining" title="Click to toggle remaining / total duration">-0:00</span>
                     </div>
 
                     <div class="fs-controls-container">
-                        <div class="fs-controls-area">
-                            <button id="fs-shuffle-btn" class="fs-icon-btn" aria-label="Shuffle">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
-                            </button>
-                            <button id="fs-prev-btn" class="fs-ctrl-btn fs-ctrl-secondary" aria-label="Previous track">
-                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
-                            </button>
-                            <button id="fs-play-btn" class="fs-ctrl-btn fs-ctrl-primary" aria-label="Play/Pause">
-                                <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" id="fs-play-icon"><path d="M8 5v14l11-7z"/></svg>
-                            </button>
-                            <button id="fs-next-btn" class="fs-ctrl-btn fs-ctrl-secondary" aria-label="Next track">
-                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
-                            </button>
-                            <button id="fs-repeat-btn" class="fs-icon-btn" aria-label="Repeat">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-                            </button>
-                        </div>
-                        <div class="fs-bottom-actions">
-                            <div class="fs-volume-area">
-                                <button id="fs-volume-btn" class="fs-icon-btn" aria-label="Mute">
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
-                                </button>
-                                <div class="volume-bar-wrapper fs-volume-wrapper">
-                                    <input type="range" id="fs-volume-bar" class="volume-bar" min="0" max="100" value="80" step="1" aria-label="Volume">
-                                    <div id="fs-volume-fill" class="volume-fill" style="width:80%"></div>
+                        <!-- Apple Music style unified controls row matching the screenshot -->
+                        <div class="fs-controls-main-row">
+                            <!-- Left: Volume + More Options (...) -->
+                            <div class="fs-ctrl-group-left">
+                                <div class="fs-volume-wrap" id="fs-volume-wrap">
+                                    <button id="fs-volume-btn" class="fs-icon-btn fs-ctrl-sub" aria-label="Volume" title="Volume">
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="fs-vol-icon">
+                                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                                            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                                        </svg>
+                                    </button>
+                                    <div class="fs-volume-popover hidden" id="fs-volume-popover">
+                                        <div class="volume-bar-wrapper fs-volume-wrapper">
+                                            <input type="range" id="fs-volume-bar" class="volume-bar" min="0" max="100" value="80" step="1" aria-label="Volume">
+                                            <div id="fs-volume-fill" class="volume-fill" style="width:80%"></div>
+                                        </div>
+                                        <span class="fs-volume-val" id="fs-volume-val">80%</span>
+                                    </div>
                                 </div>
+                                <button id="fs-options-btn" class="fs-icon-btn fs-ctrl-sub" aria-label="More options" title="More options">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                        <circle cx="5" cy="12" r="2"/>
+                                        <circle cx="12" cy="12" r="2"/>
+                                        <circle cx="19" cy="12" r="2"/>
+                                    </svg>
+                                </button>
                             </div>
-                            <button id="fs-lyrics-btn" class="fs-icon-btn fs-lyrics-toggle desktop-hide" aria-label="Toggle Lyrics">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                            </button>
+
+                            <!-- Center: Previous, Play/Pause, Next -->
+                            <div class="fs-ctrl-group-center">
+                                <button id="fs-prev-btn" class="fs-ctrl-btn fs-ctrl-jump" aria-label="Previous track" title="Previous track">
+                                    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z"/>
+                                    </svg>
+                                </button>
+                                <button id="fs-play-btn" class="fs-ctrl-btn fs-ctrl-play" aria-label="Play/Pause" title="Play/Pause">
+                                    <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" id="fs-play-icon">
+                                        <path d="M8 5v14l11-7z"/>
+                                    </svg>
+                                </button>
+                                <button id="fs-next-btn" class="fs-ctrl-btn fs-ctrl-jump" aria-label="Next track" title="Next track">
+                                    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M13 6v12l8.5-6L13 6zm-.5 6L4 6v12l8.5-6z"/>
+                                    </svg>
+                                </button>
+                            </div>
+
+                            <!-- Right: Lyrics button -->
+                            <div class="fs-ctrl-group-right">
+                                <button id="fs-lyrics-btn" class="fs-icon-btn fs-ctrl-sub fs-lyrics-btn" aria-label="Toggle Lyrics" title="Lyrics">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                                        <line x1="8" y1="9" x2="16" y2="9"/>
+                                        <line x1="8" y1="13" x2="13" y2="13"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Secondary elements preserved for script backward compatibility -->
+                        <div class="fs-legacy-controls" style="display:none;" aria-hidden="true">
+                            <button id="fs-shuffle-btn" class="fs-icon-btn" aria-label="Shuffle"></button>
+                            <button id="fs-repeat-btn" class="fs-icon-btn" aria-label="Repeat"></button>
+                            <button id="fs-like-btn" class="fs-icon-btn fs-like-btn" aria-label="Favorite"></button>
                         </div>
                     </div>
                 </div>
 
-                <!-- Right: Lyrics Panel -->
+                <!-- Right: Lyrics Panel (shown only when lyrics are available & toggled on) -->
                 <div class="fs-col-right" id="fs-lyrics-panel">
+                    <div class="fs-lyrics-header" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px 4px 16px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+                        <span class="fs-lyrics-sync-badge" id="fs-lyrics-sync-badge" style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; opacity: 0.7; text-transform: uppercase;">LYRICS</span>
+                        <div class="fs-lyrics-offset-controls" style="display: inline-flex; align-items: center; gap: 8px;">
+                            <button id="fs-lyrics-offset-minus" class="lyrics-offset-btn" title="Nudge lyrics 0.5s earlier">-0.5s</button>
+                            <span id="fs-lyrics-offset-val" class="lyrics-offset-val" style="font-size: 12px; font-family: monospace; font-weight: 600; opacity: 0.85; min-width: 38px; text-align: center;">0.0s</span>
+                            <button id="fs-lyrics-offset-plus" class="lyrics-offset-btn" title="Nudge lyrics 0.5s later">+0.5s</button>
+                            <button id="fs-lyrics-offset-reset" class="lyrics-offset-btn" title="Reset offset" style="opacity: 0.6;">↺</button>
+                        </div>
+                    </div>
                     <div class="fs-lyrics-content">
                         <h3 id="fs-lyrics-title" class="sr-only" style="display:none;">Lyrics</h3>
                         <div id="fs-lyrics-container">
@@ -510,7 +701,10 @@
         <div id="auth-modal" class="modal-overlay hidden">
             <div class="modal glass-floating">
                 <button class="modal-close" id="auth-modal-close">✕</button>
-                <h2 id="auth-modal-title">Sign In</h2>
+                <div class="auth-brand-header">
+                    <img src="/logo.png" alt="BASA" class="auth-modal-logo">
+                    <h2 id="auth-modal-title">Sign In</h2>
+                </div>
                 <form id="auth-form">
                     <div id="signup-fields" class="hidden">
                         <div class="form-group">
@@ -609,6 +803,298 @@
             </div>
         </div>
 
+        <!-- AUDIO SETTINGS MODAL -->
+        <div id="audio-settings-modal" class="modal-overlay hidden">
+            <div class="modal glass-floating" style="max-width: 520px; max-height: 85vh; overflow-y: auto;">
+                <button class="modal-close" onclick="closeAudioSettingsModal()">✕</button>
+                <h2>⚙ Audio DSP &amp; Playback Settings</h2>
+                <div style="margin-top: 16px; display: flex; flex-direction: column; gap: 14px;">
+                    
+                    <!-- DSP Master Mode -->
+                    <div style="padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                        <label for="setting-dsp-mode" style="font-weight: 600; font-size: 14px; display: block; margin-bottom: 6px;">DSP Processing Mode</label>
+                        <select id="setting-dsp-mode" class="form-input" onchange="updateDspSetting('mode', this.value)">
+                            <option value="DSP_ENHANCED">DSP Enhanced (Float32 Processing + EQ + Limiter)</option>
+                            <option value="INTERNAL_OVERSAMPLING">Internal Oversampling (AudioWorklet 96 kHz Oversampling + Float32 DSP)</option>
+                            <option value="DIRECT">Direct (DSP Bypassed)</option>
+                        </select>
+                        <small style="color:var(--text-tertiary); font-size:11px; display:block; margin-top:4px;">
+                            DSP optimizes playback in 32-bit Float. It enhances sound but never alters source lossy provenance.
+                        </small>
+                    </div>
+
+                    <!-- DSP Presets -->
+                    <div style="padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                        <label for="setting-dsp-preset" style="font-weight: 600; font-size: 14px; display: block; margin-bottom: 6px;">Audio Tuning Preset</label>
+                        <select id="setting-dsp-preset" class="form-input" onchange="updateDspSetting('preset', this.value)">
+                            <option value="FLAT">Flat (Reference Curve)</option>
+                            <option value="BASA_HIFI">BASA HiFi (Conservative Audiophile Lift)</option>
+                            <option value="VOCAL">Vocal (Midrange & Clarity)</option>
+                            <option value="BASS">Bass (Low-End Punch)</option>
+                            <option value="TREBLE">Treble (Acoustic Shimmer)</option>
+                            <option value="ROCK">Rock (Dynamic V-Shape)</option>
+                            <option value="POP">Pop (Modern Articulate Radio)</option>
+                            <option value="CLASSICAL">Classical (Symphonic Staging)</option>
+                            <option value="CINEMATIC">Cinematic (Immersive Scale)</option>
+                            <option value="ELECTRONIC">Electronic (Fast Transient Punch)</option>
+                            <option value="WARM">Warm (Analog Vintage Tube)</option>
+                        </select>
+                    </div>
+
+                    <!-- Tone Controls: Bass & Treble -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div style="padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                            <label for="setting-bass-boost" style="font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px;">Bass Enhancement</label>
+                            <select id="setting-bass-boost" class="form-input" onchange="updateDspSetting('bass', this.value)">
+                                <option value="OFF">Off (0 dB)</option>
+                                <option value="LIGHT">Light (+2 dB shelf)</option>
+                                <option value="MODERATE">Moderate (+4.5 dB shelf)</option>
+                            </select>
+                        </div>
+                        <div style="padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                            <label for="setting-treble-boost" style="font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px;">Treble Enhancement</label>
+                            <select id="setting-treble-boost" class="form-input" onchange="updateDspSetting('treble', this.value)">
+                                <option value="OFF">Off (0 dB)</option>
+                                <option value="LIGHT">Light (+1.5 dB shelf)</option>
+                                <option value="MODERATE">Moderate (+3.5 dB shelf)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Resampling & Performance Profile -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div style="padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                            <label for="setting-resample-target" style="font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px;">Target Resampling</label>
+                            <select id="setting-resample-target" class="form-input" onchange="updateDspSetting('resampleTarget', this.value)">
+                                <option value="AUTO">Auto (Smart Match)</option>
+                                <option value="48000">48 kHz</option>
+                                <option value="88200">88.2 kHz (2x 44.1)</option>
+                                <option value="96000">96 kHz (Studio)</option>
+                                <option value="176400">176.4 kHz (4x 44.1)</option>
+                                <option value="192000">192 kHz</option>
+                            </select>
+                        </div>
+                        <div style="padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                            <label for="setting-dsp-profile" style="font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px;">Performance Profile</label>
+                            <select id="setting-dsp-profile" class="form-input" onchange="updateDspSetting('profile', this.value)">
+                                <option value="BALANCED">Balanced</option>
+                                <option value="HI_FI">Hi-Fi (Sinc Resampler)</option>
+                                <option value="ECO">Eco (Low CPU)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Spatial: Stereo & Crossfeed -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div style="padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                            <label for="setting-stereo-width" style="font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px;">Stereo Width</label>
+                            <select id="setting-stereo-width" class="form-input" onchange="updateDspSetting('stereo', this.value)">
+                                <option value="NORMAL">Normal (100%)</option>
+                                <option value="WIDE">Wide (120%)</option>
+                                <option value="OFF">Mono Compatible (100%)</option>
+                            </select>
+                        </div>
+                        <div style="padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                            <label for="setting-crossfeed" style="font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px;">Headphone Crossfeed</label>
+                            <select id="setting-crossfeed" class="form-input" onchange="updateDspSetting('crossfeed', this.value)">
+                                <option value="OFF">Off (Speakers)</option>
+                                <option value="LOW">Low (Headphones)</option>
+                                <option value="MEDIUM">Medium (IEMs)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Playback Mode -->
+                    <div style="padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                        <label for="setting-playback-mode" style="font-weight: 600; font-size: 14px; display: block; margin-bottom: 6px;">Candidate Resolution Mode</label>
+                        <select id="setting-playback-mode" class="form-input" onchange="savePlaybackSetting('playbackMode', this.value)">
+                            <option value="AUTO">Auto (Fast-Start + Safe Lossless Upgrade)</option>
+                            <option value="YOUTUBE">YouTube Music Only</option>
+                            <option value="LOSSLESS">True Lossless Only (FLAC / Hi-Res)</option>
+                        </select>
+                    </div>
+
+                    <!-- Toggles -->
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                        <div>
+                            <div style="font-weight: 600; font-size: 13px;">Fast-Start Playback</div>
+                            <div style="font-size: 11px; color: var(--text-secondary);">Start lowest latency stream immediately while preparing lossless in background</div>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="setting-fast-start" checked onchange="savePlaybackSetting('fastStart', this.checked)">
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                        <div>
+                            <div style="font-weight: 600; font-size: 13px;">Output Limiter (-1.0 dBFS)</div>
+                            <div style="font-size: 11px; color: var(--text-secondary);">Peak Limiter (-1.0 dBFS Ceiling) protects against clipping</div>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="setting-limiter" checked onchange="updateDspSetting('limiter', this.checked)">
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                        <div>
+                            <div style="font-weight: 600; font-size: 13px;">Loudness Normalization (-14 LUFS)</div>
+                            <div style="font-size: 11px; color: var(--text-secondary);">K-weighted normalization target: -14 LUFS</div>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="setting-loudness" onchange="updateDspSetting('loudness', this.checked)">
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- AUDIO PIPELINE INSPECTOR MODAL -->
+        <div id="pipeline-inspector-modal" class="modal-overlay hidden">
+            <div class="modal glass-floating" style="max-width: 680px; max-height: 90vh; overflow-y: auto;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <div>
+                        <h2 style="font-size: 18px; margin: 0; display: flex; align-items: center; gap: 8px;">
+                            ⚡ Audio Pipeline Inspector
+                            <span id="pipeline-truth-badge" class="source-badge high" style="font-size: 11px; padding: 2px 8px;">SOURCE: HIGH</span>
+                        </h2>
+                        <div style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">
+                            Live runtime signal chain telemetry across all 5 audio processing stages
+                        </div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <button id="modal-ab-toggle-btn" class="button" style="font-size: 12px; padding: 4px 12px;" onclick="toggleABMode()">B: DSP ENABLED</button>
+                        <button class="modal-close" onclick="closePipelineInspectorModal()">✕</button>
+                    </div>
+                </div>
+
+                <!-- 5-Stage Visual Signal Path -->
+                <div class="pipeline-stages-container" style="display: flex; flex-direction: column; gap: 10px;">
+                    
+                    <!-- STAGE 1: SOURCE -->
+                    <div class="pipeline-stage-card" style="padding: 12px; background: rgba(255,255,255,0.04); border-radius: 8px; border-left: 3px solid #38bdf8;">
+                        <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 12px; color: #38bdf8; text-transform: uppercase; margin-bottom: 6px;">
+                            <span>1. Source Stream</span>
+                            <span id="diag-source-tier" style="color: #fff;">HIGH / LOSSY</span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 12px;">
+                            <div><span style="color: var(--text-tertiary);">Provider:</span> <strong id="diag-source-provider">—</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Codec:</span> <strong id="diag-source-codec">—</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Bitrate:</span> <strong id="diag-source-bitrate">—</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Sample Rate:</span> <strong id="diag-source-rate">—</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Bit Depth:</span> <strong id="diag-source-depth">UNAVAILABLE</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Channels:</span> <strong id="diag-source-channels">Stereo</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Format:</span> <strong id="diag-source-format">—</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Lossless:</span> <strong id="diag-source-lossless">No</strong></div>
+                        </div>
+                    </div>
+
+                    <!-- Flow Arrow -->
+                    <div style="text-align: center; color: var(--text-tertiary); font-size: 12px; margin: -4px 0;">↓</div>
+
+                    <!-- STAGE 2: DECODER -->
+                    <div class="pipeline-stage-card" style="padding: 12px; background: rgba(255,255,255,0.04); border-radius: 8px; border-left: 3px solid #a855f7;">
+                        <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 12px; color: #a855f7; text-transform: uppercase; margin-bottom: 6px;">
+                            <span>2. Audio Decoder</span>
+                            <span id="diag-decoder-status" style="color: #fff;">Float32 PCM</span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 12px;">
+                            <div><span style="color: var(--text-tertiary);">Decoder:</span> <strong id="diag-decoder-name">Browser Managed</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Codec:</span> <strong id="diag-decoder-codec">—</strong></div>
+                            <div><span style="color: var(--text-tertiary);">PCM Format:</span> <strong id="diag-decoder-pcm">Float32</strong></div>
+                            <div><span style="color: var(--text-tertiary);">PCM Rate:</span> <strong id="diag-decoder-rate">UNAVAILABLE</strong></div>
+                        </div>
+                    </div>
+
+                    <!-- Flow Arrow -->
+                    <div style="text-align: center; color: var(--text-tertiary); font-size: 12px; margin: -4px 0;">↓</div>
+
+                    <!-- STAGE 3: DSP INTERNAL PROCESSING -->
+                    <div class="pipeline-stage-card" style="padding: 12px; background: rgba(255,255,255,0.04); border-radius: 8px; border-left: 3px solid #10b981;">
+                        <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 12px; color: #10b981; text-transform: uppercase; margin-bottom: 6px;">
+                            <span>3. Native Web Audio DSP</span>
+                            <span id="diag-dsp-status" style="color: #fff;">ACTIVE</span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 12px;">
+                            <div><span style="color: var(--text-tertiary);">DSP Processing:</span> <strong id="diag-dsp-rate">Native DSP (Actual Rate)</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Preset:</span> <strong id="diag-dsp-preset">BASA HiFi</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Bass Shelf:</span> <strong id="diag-dsp-bass">OFF</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Treble Shelf:</span> <strong id="diag-dsp-treble">OFF</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Compressor:</span> <strong id="diag-dsp-compressor">LIGHT</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Limiter:</span> <strong id="diag-dsp-limiter">Peak Limiter (-1.0 dBFS Ceiling)</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Stereo Width:</span> <strong id="diag-dsp-stereo">100%</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Crossfeed:</span> <strong id="diag-dsp-crossfeed">OFF</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Loudness:</span> <strong id="diag-dsp-loudness">K-weighted normalization target: -14 LUFS</strong></div>
+                        </div>
+                    </div>
+
+                    <!-- Flow Arrow -->
+                    <div style="text-align: center; color: var(--text-tertiary); font-size: 12px; margin: -4px 0;">↓</div>
+
+                    <!-- STAGE 4: RESAMPLER / OVERSAMPLER -->
+                    <div class="pipeline-stage-card" style="padding: 12px; background: rgba(255,255,255,0.04); border-radius: 8px; border-left: 3px solid #f59e0b;">
+                        <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 12px; color: #f59e0b; text-transform: uppercase; margin-bottom: 6px;">
+                            <span>4. AudioWorklet Internal Oversampler</span>
+                            <span id="diag-resampler-status" style="color: #fff;">96 kHz Internal Oversampling</span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 12px;">
+                            <div><span style="color: var(--text-tertiary);">Processing Path:</span> <strong id="diag-resampler-io">48 kHz → 96 kHz Internal → 48 kHz</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Algorithm:</span> <strong id="diag-resampler-algo">16-tap polyphase windowed-sinc using Lanczos window</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Quality:</span> <strong id="diag-resampler-quality">High-Precision Float32 (16-tap Lanczos)</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Latency:</span> <strong id="diag-resampler-latency">~2.6 ms (Sync)</strong></div>
+                        </div>
+                    </div>
+
+                    <!-- Flow Arrow -->
+                    <div style="text-align: center; color: var(--text-tertiary); font-size: 12px; margin: -4px 0;">↓</div>
+
+                    <!-- STAGE 5: AUDIOCONTEXT & OUTPUT DEVICE -->
+                    <div class="pipeline-stage-card" style="padding: 12px; background: rgba(255,255,255,0.04); border-radius: 8px; border-left: 3px solid #ec4899;">
+                        <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 12px; color: #ec4899; text-transform: uppercase; margin-bottom: 6px;">
+                            <span>5. AudioContext Destination</span>
+                            <span id="diag-output-rate-title" style="color: #fff;">AUDIOCONTEXT: 48 kHz</span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; font-size: 12px;">
+                            <div><span style="color: var(--text-tertiary);">Requested Rate:</span> <strong id="diag-output-requested-rate">96 kHz</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Actual AudioContext:</span> <strong id="diag-output-ctx-rate">48 kHz</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Status:</span> <strong id="diag-output-status">REQUEST_NOT_HONORED</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Channels:</span> <strong id="diag-output-channels">2 (Stereo)</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Device Name:</span> <strong id="diag-output-device">Default Audio Output</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Hardware Rate:</span> <strong id="diag-output-hw-rate">UNAVAILABLE</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Hardware Depth:</span> <strong id="diag-output-hw-depth">UNAVAILABLE</strong></div>
+                            <div><span style="color: var(--text-tertiary);">Internal PCM Data Rate:</span> <strong id="diag-output-pcm-bitrate">—</strong></div>
+                        </div>
+                    </div>
+
+                    <!-- Real-Time Audio Telemetry -->
+                    <div style="padding: 10px 12px; background: rgba(0,0,0,0.25); border-radius: 8px; display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
+                        <div>
+                            <span style="color: var(--text-tertiary);">RMS Level:</span> <strong id="diag-meter-rms" style="margin-right: 12px;">-42 dBFS</strong>
+                            <span style="color: var(--text-tertiary);">Peak:</span> <strong id="diag-meter-peak" style="margin-right: 12px;">-18 dBFS</strong>
+                            <span id="diag-clip-indicator" style="padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 10px; background: rgba(255,255,255,0.1); color: #888;">NO CLIPPING</span>
+                        </div>
+                        <div id="pipeline-validation-status" style="font-size: 11px; color: #10b981; font-weight: 600;">
+                            ✓ Pipeline Consistent &amp; Valid
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CANDIDATE SOURCES MODAL (Section 20) -->
+        <div id="candidate-sources-modal" class="modal-overlay hidden">
+            <div class="modal glass-floating" style="max-width: 540px;">
+                <button class="modal-close" onclick="closeCandidateSourcesModal()">✕</button>
+                <h2 id="sources-modal-title">AUDIO SOURCES</h2>
+                <p id="sources-modal-subtitle" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">Select a specific audio stream or let BASA auto-resolve</p>
+                <div id="sources-modal-list" class="track-list">
+                    <!-- Injected dynamically -->
+                </div>
+            </div>
+        </div>
+
         <!-- 9. Toast Notifications -->
         <div id="toast-container" class="toast-container"></div>
 
@@ -622,7 +1108,16 @@
     <!-- 11. Script Links -->
     <script src="youtubePlayer.js"></script>
     <script src="syncManager.js"></script>
-    <script src="playbackManager.js"></script>
-    <script src="script.js"></script>
+    <script src="/audio/dsp/resampler.js"></script>
+    <script src="/audio/dsp/equalizer.js"></script>
+    <script src="/audio/dsp/dynamics.js"></script>
+    <script src="/audio/dsp/limiter.js"></script>
+    <script src="/audio/dsp/stereo.js"></script>
+    <script src="/audio/dsp/crossfeed.js"></script>
+    <script src="/audio/dsp/loudness.js"></script>
+    <script src="/audio/dsp/analyzer.js"></script>
+    <script src="/audio/dsp/dspEngine.js"></script>
+    <script src="playbackManager.js?v=2.2.3"></script>
+    <script src="script.js?v=2.2.3"></script>
 </body>
 </html>

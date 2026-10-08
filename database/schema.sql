@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS playlist_tracks (
     id TEXT PRIMARY KEY,
     playlist_id TEXT NOT NULL,
     track_id TEXT NOT NULL,
-    track_source TEXT NOT NULL CHECK(track_source IN ('audius', 'local', 'youtube', 'archive', 'telegram')),
+    track_source TEXT NOT NULL CHECK(track_source IN ('audius', 'local', 'youtube', 'archive', 'telegram', 'jiosaavn')),
     track_data_json TEXT NOT NULL,
     position INTEGER NOT NULL DEFAULT 0,
     added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS liked_tracks (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     track_id TEXT NOT NULL,
-    track_source TEXT NOT NULL CHECK(track_source IN ('audius', 'local', 'youtube', 'archive', 'telegram')),
+    track_source TEXT NOT NULL CHECK(track_source IN ('audius', 'local', 'youtube', 'archive', 'telegram', 'jiosaavn')),
     track_data_json TEXT NOT NULL,
     liked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS play_history (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     track_id TEXT NOT NULL,
-    track_source TEXT NOT NULL CHECK(track_source IN ('audius', 'local', 'youtube', 'archive', 'telegram')),
+    track_source TEXT NOT NULL CHECK(track_source IN ('audius', 'local', 'youtube', 'archive', 'telegram', 'jiosaavn')),
     track_data_json TEXT NOT NULL,
     played_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -68,6 +68,8 @@ CREATE TABLE IF NOT EXISTS uploaded_tracks (
     bitDepth INTEGER DEFAULT NULL,
     bitrate INTEGER DEFAULT NULL,
     channels INTEGER DEFAULT NULL,
+    classification TEXT DEFAULT 'UNKNOWN',
+    is_music BOOLEAN DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
@@ -78,6 +80,8 @@ CREATE TABLE IF NOT EXISTS telegram_sources (
     name TEXT NOT NULL,
     chat_id TEXT NOT NULL,
     username TEXT DEFAULT NULL,
+    peer_id TEXT DEFAULT NULL,
+    type TEXT DEFAULT 'telegram',
     enabled BOOLEAN DEFAULT 1,
     priority INTEGER DEFAULT 1,
     status TEXT DEFAULT 'DISCONNECTED',
@@ -86,6 +90,10 @@ CREATE TABLE IF NOT EXISTS telegram_sources (
     indexed_audio INTEGER DEFAULT 0,
     indexing_status TEXT DEFAULT 'IDLE',
     last_indexed_at DATETIME DEFAULT NULL,
+    last_successful_search DATETIME DEFAULT NULL,
+    last_successful_retrieval DATETIME DEFAULT NULL,
+    last_error TEXT DEFAULT NULL,
+    error_count INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -178,3 +186,60 @@ CREATE INDEX IF NOT EXISTS idx_telegram_tracks_file_id ON telegram_tracks(telegr
 CREATE INDEX IF NOT EXISTS idx_telegram_tracks_file_hash ON telegram_tracks(file_hash);
 CREATE INDEX IF NOT EXISTS idx_telegram_requests_norm ON telegram_requests(normalized_query);
 CREATE INDEX IF NOT EXISTS idx_telegram_requests_status ON telegram_requests(status);
+
+-- Lyrics Cache
+CREATE TABLE IF NOT EXISTS lyrics_cache (
+    id TEXT PRIMARY KEY,
+    canonical_key TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    artist TEXT NOT NULL,
+    album TEXT DEFAULT NULL,
+    duration INTEGER DEFAULT 0,
+    plain_lyrics TEXT DEFAULT NULL,
+    synced_lyrics TEXT DEFAULT NULL,
+    lines_json TEXT DEFAULT NULL,
+    provider TEXT DEFAULT 'lrclib',
+    fetched_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_lyrics_canonical_key ON lyrics_cache(canonical_key);
+
+-- Lossless Sources & Cache Index
+CREATE TABLE IF NOT EXISTS lossless_sources (
+    id TEXT PRIMARY KEY,
+    canonical_track_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    provider_track_id TEXT DEFAULT NULL,
+    title TEXT NOT NULL,
+    artist TEXT DEFAULT 'Unknown Artist',
+    album TEXT DEFAULT '',
+    isrc TEXT DEFAULT NULL,
+    local_path TEXT DEFAULT NULL,
+    remote_reference TEXT DEFAULT NULL,
+    file_hash TEXT DEFAULT NULL,
+    codec TEXT DEFAULT 'FLAC',
+    container TEXT DEFAULT 'FLAC',
+    sample_rate INTEGER DEFAULT NULL,
+    bit_depth INTEGER DEFAULT NULL,
+    channels INTEGER DEFAULT 2,
+    bitrate INTEGER DEFAULT NULL,
+    duration_ms INTEGER DEFAULT 0,
+    file_size INTEGER DEFAULT 0,
+    quality_class TEXT DEFAULT 'LOSSLESS',
+    verification_status TEXT DEFAULT 'UNVERIFIED',
+    source_type TEXT DEFAULT 'CACHED_FILE',
+    playback_transport TEXT DEFAULT 'PROGRESSIVE',
+    replay_gain_track_gain REAL DEFAULT NULL,
+    replay_gain_track_peak REAL DEFAULT NULL,
+    replay_gain_album_gain REAL DEFAULT NULL,
+    replay_gain_album_peak REAL DEFAULT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    verified_at DATETIME DEFAULT NULL,
+    last_used_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_lossless_canonical ON lossless_sources(canonical_track_id);
+CREATE INDEX IF NOT EXISTS idx_lossless_hash ON lossless_sources(file_hash);
+CREATE INDEX IF NOT EXISTS idx_lossless_provider ON lossless_sources(provider);
+CREATE INDEX IF NOT EXISTS idx_lossless_quality ON lossless_sources(quality_class, verification_status);
+

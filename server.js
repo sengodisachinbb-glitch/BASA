@@ -34,6 +34,9 @@ if (!fs.existsSync(telegramDir)) fs.mkdirSync(telegramDir, { recursive: true });
 const telegramCoversDir = path.join(telegramDir, 'covers');
 if (!fs.existsSync(telegramCoversDir)) fs.mkdirSync(telegramCoversDir, { recursive: true });
 
+const losslessCacheDir = path.join(uploadsDir, 'lossless_cache');
+if (!fs.existsSync(losslessCacheDir)) fs.mkdirSync(losslessCacheDir, { recursive: true });
+
 const DB_PATH = path.join(dbDir, 'liquid_music.db');
 
 async function startServer() {
@@ -68,6 +71,11 @@ async function startServer() {
                 db.run("ALTER TABLE uploaded_tracks ADD COLUMN channels INTEGER DEFAULT NULL");
                 console.log("[Migration] Added quality metadata columns to uploaded_tracks.");
             }
+            if (!columns.includes('classification')) {
+                db.run("ALTER TABLE uploaded_tracks ADD COLUMN classification TEXT DEFAULT 'UNKNOWN'");
+                db.run("ALTER TABLE uploaded_tracks ADD COLUMN is_music BOOLEAN DEFAULT 1");
+                console.log("[Migration] Added classification and is_music columns to uploaded_tracks.");
+            }
         }
 
         const tgTrackInfo = db.exec("PRAGMA table_info(telegram_tracks)");
@@ -88,21 +96,46 @@ async function startServer() {
             console.log("[Migration] Ensured telegram_tracks status and source columns.");
         }
 
-        // Migrate tables to support 'archive' and 'telegram' track_source
+        // Migrate telegram_sources to support dynamic peer resolution and health tracking
+        const tgSourceInfo = db.exec("PRAGMA table_info(telegram_sources)");
+        if (tgSourceInfo.length > 0) {
+            const cols = tgSourceInfo[0].values.map(col => col[1]);
+            if (!cols.includes('peer_id')) {
+                db.run("ALTER TABLE telegram_sources ADD COLUMN peer_id TEXT DEFAULT NULL");
+            }
+            if (!cols.includes('type')) {
+                db.run("ALTER TABLE telegram_sources ADD COLUMN type TEXT DEFAULT 'telegram'");
+            }
+            if (!cols.includes('last_successful_search')) {
+                db.run("ALTER TABLE telegram_sources ADD COLUMN last_successful_search DATETIME DEFAULT NULL");
+            }
+            if (!cols.includes('last_successful_retrieval')) {
+                db.run("ALTER TABLE telegram_sources ADD COLUMN last_successful_retrieval DATETIME DEFAULT NULL");
+            }
+            if (!cols.includes('last_error')) {
+                db.run("ALTER TABLE telegram_sources ADD COLUMN last_error TEXT DEFAULT NULL");
+            }
+            if (!cols.includes('error_count')) {
+                db.run("ALTER TABLE telegram_sources ADD COLUMN error_count INTEGER DEFAULT 0");
+            }
+            console.log("[Migration] Ensured telegram_sources peer_id, health, and tracking columns.");
+        }
+
+        // Migrate tables to support 'archive', 'telegram', and 'jiosaavn' track_source
         const tablesToMigrate = ['playlist_tracks', 'liked_tracks', 'play_history'];
         for (const table of tablesToMigrate) {
             const tableDef = db.exec(`SELECT sql FROM sqlite_master WHERE type='table' AND name='${table}'`);
             if (tableDef.length > 0 && tableDef[0].values.length > 0) {
                 const sql = tableDef[0].values[0][0];
-                if (sql && (!sql.includes("'archive'") || !sql.includes("'telegram'"))) {
-                    console.log(`[Migration] Migrating ${table} to support 'archive' & 'telegram' track_source...`);
+                if (sql && (!sql.includes("'archive'") || !sql.includes("'telegram'") || !sql.includes("'jiosaavn'"))) {
+                    console.log(`[Migration] Migrating ${table} to support 'archive', 'telegram', 'jiosaavn' track_source...`);
                     if (table === 'playlist_tracks') {
                         db.run(`
                             CREATE TABLE playlist_tracks_new (
                                 id TEXT PRIMARY KEY,
                                 playlist_id TEXT NOT NULL,
                                 track_id TEXT NOT NULL,
-                                track_source TEXT NOT NULL CHECK(track_source IN ('audius', 'local', 'youtube', 'archive', 'telegram')),
+                                track_source TEXT NOT NULL CHECK(track_source IN ('audius', 'local', 'youtube', 'archive', 'telegram', 'jiosaavn')),
                                 track_data_json TEXT NOT NULL,
                                 position INTEGER NOT NULL DEFAULT 0,
                                 added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -119,7 +152,7 @@ async function startServer() {
                                 id TEXT PRIMARY KEY,
                                 user_id TEXT NOT NULL,
                                 track_id TEXT NOT NULL,
-                                track_source TEXT NOT NULL CHECK(track_source IN ('audius', 'local', 'youtube', 'archive', 'telegram')),
+                                track_source TEXT NOT NULL CHECK(track_source IN ('audius', 'local', 'youtube', 'archive', 'telegram', 'jiosaavn')),
                                 track_data_json TEXT NOT NULL,
                                 liked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -136,7 +169,7 @@ async function startServer() {
                                 id TEXT PRIMARY KEY,
                                 user_id TEXT NOT NULL,
                                 track_id TEXT NOT NULL,
-                                track_source TEXT NOT NULL CHECK(track_source IN ('audius', 'local', 'youtube', 'archive', 'telegram')),
+                                track_source TEXT NOT NULL CHECK(track_source IN ('audius', 'local', 'youtube', 'archive', 'telegram', 'jiosaavn')),
                                 track_data_json TEXT NOT NULL,
                                 played_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -151,6 +184,46 @@ async function startServer() {
                 }
             }
         }
+
+        // Ensure lossless_sources table and schema exist
+        db.run(`
+            CREATE TABLE IF NOT EXISTS lossless_sources (
+                id TEXT PRIMARY KEY,
+                canonical_track_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                provider_track_id TEXT DEFAULT NULL,
+                title TEXT NOT NULL,
+                artist TEXT DEFAULT 'Unknown Artist',
+                album TEXT DEFAULT '',
+                isrc TEXT DEFAULT NULL,
+                local_path TEXT DEFAULT NULL,
+                remote_reference TEXT DEFAULT NULL,
+                file_hash TEXT DEFAULT NULL,
+                codec TEXT DEFAULT 'FLAC',
+                container TEXT DEFAULT 'FLAC',
+                sample_rate INTEGER DEFAULT NULL,
+                bit_depth INTEGER DEFAULT NULL,
+                channels INTEGER DEFAULT 2,
+                bitrate INTEGER DEFAULT NULL,
+                duration_ms INTEGER DEFAULT 0,
+                file_size INTEGER DEFAULT 0,
+                quality_class TEXT DEFAULT 'LOSSLESS',
+                verification_status TEXT DEFAULT 'UNVERIFIED',
+                source_type TEXT DEFAULT 'CACHED_FILE',
+                playback_transport TEXT DEFAULT 'PROGRESSIVE',
+                replay_gain_track_gain REAL DEFAULT NULL,
+                replay_gain_track_peak REAL DEFAULT NULL,
+                replay_gain_album_gain REAL DEFAULT NULL,
+                replay_gain_album_peak REAL DEFAULT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                verified_at DATETIME DEFAULT NULL,
+                last_used_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_lossless_canonical ON lossless_sources(canonical_track_id);
+            CREATE INDEX IF NOT EXISTS idx_lossless_hash ON lossless_sources(file_hash);
+            CREATE INDEX IF NOT EXISTS idx_lossless_provider ON lossless_sources(provider);
+            CREATE INDEX IF NOT EXISTS idx_lossless_quality ON lossless_sources(quality_class, verification_status);
+        `);
     } catch (err) {
         console.error("Migration error:", err);
     }
@@ -171,6 +244,18 @@ async function startServer() {
     // Seed default Telegram sources if empty (indexing remains idle, never blocks startup)
     const telegramSourceManager = require('./services/telegramSourceManager');
     telegramSourceManager.initSources(db, saveDb);
+
+    // Asynchronously resolve configured Telegram sources in background without blocking server startup
+    const telegramProvider = require('./services/telegramProvider');
+    telegramProvider.getClient().then(client => {
+        if (client) {
+            telegramSourceManager.resolveAllSources(db, saveDb, client).catch(err => {
+                console.warn('[Startup] Dynamic Telegram source resolution notice:', err.message);
+            });
+        }
+    }).catch(err => {
+        console.warn('[Startup] Telegram client check notice:', err.message);
+    });
 
     // --- API Routes ---
     app.use('/api/auth', require('./routes/auth'));
@@ -206,6 +291,11 @@ async function startServer() {
     ║     http://localhost:${PORT}                 ║
     ╚══════════════════════════════════════════╝
         `);
+    });
+
+    // Unhandled promise rejection safety net
+    process.on('unhandledRejection', (reason, promise) => {
+        console.warn('[Process] Caught unhandled rejection:', reason && reason.message ? reason.message : reason);
     });
 
     // Graceful shutdown

@@ -11,3 +11,8 @@ refactor.js
 test_piped.js
 test_stream.js
 test_youtubedl.js
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/

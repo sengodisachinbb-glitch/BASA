@@ -11,6 +11,8 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
+const textNormalizer = require('./textNormalizer');
+const searchOrchestrator = require('./searchOrchestrator');
 const telegramProvider = require('./telegramProvider');
 const telegramSourceManager = require('./telegramSourceManager');
 
@@ -48,7 +50,7 @@ class TelegramRequestWorker {
         }
 
         const rawQuery = data.query.trim();
-        const normQuery = telegramProvider.normalizeText(rawQuery);
+        const normQuery = textNormalizer.normalize(rawQuery);
         const requesterId = data.requester_id || 'anonymous';
 
         // 1. Check if a request for this exact normalized query already exists (MERGE DUPLICATES)
@@ -65,9 +67,12 @@ class TelegramRequestWorker {
 
             const updated = getOne(db, 'SELECT * FROM telegram_requests WHERE id = ?', [existing.id]);
             return {
+                success: true,
                 merged: true,
+                deduplicated: true,
                 message: `Request joined! ${newCount} listeners are waiting for this track.`,
-                request: this._formatRequest(updated)
+                request: this._formatRequest(updated),
+                data: this._formatRequest(updated)
             };
         }
 
@@ -84,9 +89,12 @@ class TelegramRequestWorker {
         // 3. Evaluate immediately using the search orchestrator path
         const processed = await this.evaluateSingleRequest(db, saveDb, id);
         return {
+            success: true,
             merged: false,
+            deduplicated: false,
             message: 'Song request submitted to Hi-Res lossless queue.',
-            request: this._formatRequest(processed)
+            request: this._formatRequest(processed),
+            data: this._formatRequest(processed)
         };
     }
 
@@ -101,13 +109,28 @@ class TelegramRequestWorker {
         const sources = telegramSourceManager.getSources(db, true); // Enabled sources ordered by priority
         const sourcesStatus = {};
 
-        // 1. Search local library index for matching tracks
-        const matches = telegramProvider.searchTracks(req.query, { db, limit: 10 });
+        // 1. Resolve using the unified SearchOrchestrator pipeline (SearchOrchestrator -> TrackMatcher -> SourceResolver -> QualityResolver)
+        let topMatch = null;
+        try {
+            const canonicalResults = await searchOrchestrator.search(req.query, { db, limit: 10, source: 'all' });
+            for (const track of canonicalResults) {
+                const tgCandidate = track.candidates?.find(c => c.source === 'telegram');
+                if (tgCandidate) {
+                    topMatch = tgCandidate;
+                    break;
+                }
+            }
+        } catch (sErr) {
+            console.warn('[TelegramRequestWorker] SearchOrchestrator pipeline warning:', sErr.message);
+        }
 
-        if (matches && matches.length > 0) {
-            // Find top match from the highest priority source
-            const topMatch = matches[0];
+        if (!topMatch) {
+            // Fallback to local index search
+            const matches = telegramProvider.searchTracks(req.query, { db, limit: 10 });
+            if (matches && matches.length > 0) topMatch = matches[0];
+        }
 
+        if (topMatch) {
             for (const src of sources) {
                 if (src.id === topMatch.sourceId) {
                     sourcesStatus[src.id] = 'SEARCHED_FOUND';
@@ -220,6 +243,7 @@ class TelegramRequestWorker {
             normalizedQuery: row.normalized_query,
             status: row.status,
             waitingCount: row.waiting_count || 1,
+            waiting_count: row.waiting_count || 1,
             selectedSourceId: row.selected_source_id,
             selectedMessageId: row.selected_message_id,
             resultTrackId: row.result_track_id,
