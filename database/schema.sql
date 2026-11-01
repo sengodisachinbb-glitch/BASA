@@ -136,3 +136,57 @@ CREATE INDEX IF NOT EXISTS idx_lossless_canonical ON lossless_sources(canonical_
 CREATE INDEX IF NOT EXISTS idx_lossless_hash ON lossless_sources(file_hash);
 CREATE INDEX IF NOT EXISTS idx_lossless_provider ON lossless_sources(provider);
 CREATE INDEX IF NOT EXISTS idx_lossless_quality ON lossless_sources(quality_class, verification_status);
+
+-- ============================================================
+-- Canonical Songs Catalog (Radio, Recommendations & Streaming)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS songs (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    artist TEXT NOT NULL,
+    album TEXT DEFAULT '',
+    duration INTEGER DEFAULT 0,
+    audio_url TEXT NOT NULL,
+    cover_url TEXT DEFAULT '',
+    language TEXT NOT NULL DEFAULT 'English',
+    mood TEXT NOT NULL DEFAULT 'chill',
+    vibe_tags TEXT NOT NULL DEFAULT '[]',
+    energy REAL NOT NULL DEFAULT 0.5,
+    tempo_bpm INTEGER NOT NULL DEFAULT 120,
+    genre TEXT NOT NULL DEFAULT 'Pop',
+    release_year INTEGER NOT NULL DEFAULT 2024,
+    hero_actor TEXT DEFAULT '',
+    heroine TEXT DEFAULT '',
+    music_director TEXT DEFAULT '',
+    singer TEXT DEFAULT '',
+    movie TEXT DEFAULT '',
+    play_count INTEGER DEFAULT 0,
+    like_count INTEGER DEFAULT 0,
+    skip_count INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_songs_artist ON songs(artist);
+CREATE INDEX IF NOT EXISTS idx_songs_language ON songs(language);
+CREATE INDEX IF NOT EXISTS idx_songs_mood ON songs(mood);
+CREATE INDEX IF NOT EXISTS idx_songs_genre ON songs(genre);
+CREATE INDEX IF NOT EXISTS idx_songs_director ON songs(music_director);
+CREATE INDEX IF NOT EXISTS idx_songs_actor ON songs(hero_actor);
+
+-- ============================================================
+-- User Listening Events (Plays, Skips, Likes, Completes)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS user_events (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    song_id TEXT NOT NULL,
+    event_type TEXT NOT NULL CHECK(event_type IN ('play', 'skip', 'like', 'complete')),
+    listened_seconds REAL DEFAULT 0,
+    duration_seconds REAL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (song_id) REFERENCES songs(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_events_user ON user_events(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_events_song ON user_events(song_id);
+CREATE INDEX IF NOT EXISTS idx_user_events_type ON user_events(user_id, event_type);

@@ -188,6 +188,17 @@ async function startServer() {
     } catch (err) {
         console.error("Migration error:", err);
     }
+
+    // Auto-seed canonical songs if table is empty
+    try {
+        const countRes = db.exec("SELECT COUNT(*) FROM songs");
+        if (!countRes || !countRes[0] || countRes[0].values[0][0] === 0) {
+            const { seedDatabase } = require('./database/seedSongs');
+            seedDatabase(db);
+        }
+    } catch (e) {
+        console.warn('[DB] Song table seed check notice:', e.message);
+    }
     
     saveDb();
 
@@ -212,6 +223,7 @@ async function startServer() {
     app.use('/api/playlists', require('./routes/playlists'));
     app.use('/api/library', require('./routes/library'));
     app.use('/api/upload', require('./routes/upload'));
+    app.use('/api', require('./routes/recommendations'));
 
     // --- SPA Fallback ---
     app.get('*', (req, res) => {

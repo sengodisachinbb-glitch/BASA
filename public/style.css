@@ -3934,6 +3934,31 @@ body.fullscreen-player-open {
   transform: translateX(2px);
 }
 
+.queue-item.dragging {
+  opacity: 0.35;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px dashed rgba(59, 130, 246, 0.5);
+}
+
+.queue-item-drag-handle {
+  font-size: 14px;
+  color: var(--text-tertiary);
+  cursor: grab;
+  padding: 0 4px;
+  user-select: none;
+  opacity: 0.4;
+  transition: opacity 0.15s ease;
+  line-height: 1;
+}
+
+.queue-item-drag-handle:active {
+  cursor: grabbing;
+}
+
+.queue-item:hover .queue-item-drag-handle {
+  opacity: 0.9;
+}
+
 .queue-item-thumb-wrap {
   width: 42px;
   height: 42px;

@@ -1764,6 +1764,40 @@ function switchQueueTab(tab) {
     renderQueueDrawer();
 }
 
+let draggedQueueIndex = null;
+let draggedQueueType = null;
+
+function handleQueueDragStart(e, index, queueType) {
+    draggedQueueIndex = index;
+    draggedQueueType = queueType;
+    e.dataTransfer.effectAllowed = 'move';
+    if (e.currentTarget) e.currentTarget.classList.add('dragging');
+}
+
+function handleQueueDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+}
+
+function handleQueueDrop(e, targetIndex, targetQueueType) {
+    e.preventDefault();
+    e.stopPropagation();
+    document.querySelectorAll('.queue-item.dragging').forEach(el => el.classList.remove('dragging'));
+    if (draggedQueueIndex === null || draggedQueueType !== targetQueueType) return;
+    if (draggedQueueIndex === targetIndex) return;
+
+    if (window.playerQueueStore) {
+        window.playerQueueStore.reorderQueue(draggedQueueIndex, targetIndex, targetQueueType);
+    } else if (state.userQueue) {
+        const [moved] = state.userQueue.splice(draggedQueueIndex, 1);
+        state.userQueue.splice(targetIndex, 0, moved);
+        saveQueueState();
+        renderQueueDrawer();
+    }
+    draggedQueueIndex = null;
+    draggedQueueType = null;
+}
+
 function renderQueueDrawer() {
     updateQueueBadge();
 
@@ -1802,14 +1836,19 @@ function renderQueueDrawer() {
     if (upnextContainer) {
         let contentHtml = '';
 
-        // TIER 1: USER QUEUE (Explicit user additions: Play Next / Add to Queue)
+        // TIER 1: USER QUEUE (Explicit user additions with drag-to-reorder)
         if (state.userQueue && state.userQueue.length > 0) {
             const userItemsHtml = state.userQueue.map((track, uIdx) => {
                 const cover = track.cover || '';
                 const entryId = track.queueEntryId || `u_${uIdx}`;
                 const qualityHtml = renderQualityBadge(track);
                 return `
-                    <div class="queue-item" onclick="playFromQueueIndex(${uIdx}, 'USER_QUEUE')">
+                    <div class="queue-item" draggable="true"
+                         ondragstart="handleQueueDragStart(event, ${uIdx}, 'userQueue')"
+                         ondragover="handleQueueDragOver(event)"
+                         ondrop="handleQueueDrop(event, ${uIdx}, 'userQueue')"
+                         onclick="playFromQueueIndex(${uIdx}, 'USER_QUEUE')">
+                        <div class="queue-item-drag-handle" title="Drag to reorder">⋮⋮</div>
                         <div class="queue-item-thumb-wrap">
                             <img class="queue-item-thumb" src="${cover}" alt="" onerror="this.style.opacity='0.2'">
                             <div class="queue-item-play-overlay">▶</div>
@@ -5087,3 +5126,6 @@ window.clearUserQueue = clearUserQueue;
 window.toggleAutoPlay = toggleAutoPlay;
 window.playNextInQueueFromData = playNextInQueueFromData;
 window.renderPlayerQualityBadge = renderPlayerQualityBadge;
+window.handleQueueDragStart = handleQueueDragStart;
+window.handleQueueDragOver = handleQueueDragOver;
+window.handleQueueDrop = handleQueueDrop;
