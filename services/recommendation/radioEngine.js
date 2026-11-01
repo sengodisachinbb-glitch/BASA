@@ -75,12 +75,26 @@ class RadioEngine {
             excludeIds.add(id);
         }
 
-        // 2. Fetch seed song
+        // 2. Fetch seed song(s) for natural radio drift (Step 2)
         const seedSong = this._getOne('SELECT * FROM songs WHERE id = ?', [seedSongId]);
         if (!seedSong) {
             return this.getPopularFallback(limit, Array.from(excludeIds));
         }
         excludeIds.add(seedSong.id);
+
+        let seedSongs = [seedSong];
+        if (Array.isArray(options.seedIds) && options.seedIds.length > 0) {
+            const rawOtherSeeds = options.seedIds
+                .filter(id => id && id !== seedSongId)
+                .slice(-2);
+            for (const otherId of rawOtherSeeds) {
+                const s = this._getOne('SELECT * FROM songs WHERE id = ?', [otherId]);
+                if (s) {
+                    seedSongs.unshift(s);
+                    excludeIds.add(s.id);
+                }
+            }
+        }
 
         // 3. Fetch candidates from database
         const rawCandidates = this.getAllSongs(Array.from(excludeIds));
@@ -89,10 +103,12 @@ class RadioEngine {
             return this.getPopularFallback(limit, Array.from(excludeIds), seedSong.language);
         }
 
-        // 4. Score all candidates against seed song
+        // 4. Score all candidates against seed song(s) using multi-seed drift
         const scoredCandidates = candidates.map(cand => ({
             song: cand,
-            score: this.scorer.score(seedSong, cand, userHistory)
+            score: (seedSongs.length > 1 && typeof this.scorer.scoreMultiSeed === 'function')
+                ? this.scorer.scoreMultiSeed(seedSongs, cand, userHistory)
+                : this.scorer.score(seedSong, cand, userHistory)
         })).sort((a, b) => b.score - a.score);
 
         // 5. Split into 70% Similar and 30% Discovery pools
@@ -289,7 +305,7 @@ class RadioEngine {
             `, [eventId, uId, songId, eventType, Number(listenedSeconds) || 0, Number(durationSeconds) || 0]);
 
             // Update song counters
-            if (eventType === 'play') {
+            if (eventType === 'play' || eventType === 'replay') {
                 this.db.run('UPDATE songs SET play_count = play_count + 1 WHERE id = ?', [songId]);
             } else if (eventType === 'like') {
                 this.db.run('UPDATE songs SET like_count = like_count + 1 WHERE id = ?', [songId]);
@@ -331,6 +347,11 @@ class RadioEngine {
                 WHERE user_id = ? AND event_type = 'complete'
             `, [userId]);
 
+            const replayedRows = this._getAll(`
+                SELECT song_id FROM user_events
+                WHERE user_id = ? AND event_type = 'replay'
+            `, [userId]);
+
             const skippedRows = this._getAll(`
                 SELECT s.id, s.artist FROM user_events e
                 JOIN songs s ON e.song_id = s.id
@@ -347,6 +368,7 @@ class RadioEngine {
                 likedSongIds: new Set(likedRows.map(r => r.id)),
                 likedArtists: new Set(likedRows.map(r => r.artist.toLowerCase().trim())),
                 completedSongIds: new Set(completedRows.map(r => r.song_id)),
+                replayedSongIds: new Set(replayedRows.map(r => r.song_id)),
                 skippedSongIds: new Set(skippedRows.map(r => r.id)),
                 skippedArtists: new Set(skippedRows.map(r => r.artist.toLowerCase().trim())),
                 recentlyPlayedIds: recentPlays.map(r => r.song_id)
@@ -356,10 +378,25 @@ class RadioEngine {
                 likedSongIds: new Set(),
                 likedArtists: new Set(),
                 completedSongIds: new Set(),
+                replayedSongIds: new Set(),
                 skippedSongIds: new Set(),
                 skippedArtists: new Set(),
                 recentlyPlayedIds: []
             };
+        }
+    }
+
+    /**
+     * Clears all recorded user listening signals / history (Step 3)
+     */
+    clearUserHistory(userId) {
+        if (!this.db || !userId) return false;
+        try {
+            this.db.run('DELETE FROM user_events WHERE user_id = ?', [userId]);
+            return true;
+        } catch (e) {
+            console.error('[RadioEngine] Failed to clear history:', e.message);
+            return false;
         }
     }
 }

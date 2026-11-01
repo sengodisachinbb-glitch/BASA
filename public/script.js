@@ -1318,7 +1318,7 @@ async function fetchUpNextRecommendations(trackData) {
     }
 }
 
-function playTrack(trackData, forceLocal = false, isBackwardNav = false) {
+function playTrack(trackData, forceLocal = false, isBackwardNav = false, fromQueueStore = false) {
     if (!forceLocal && window.syncManager && window.syncManager.roomCode) {
         if (window.syncManager.role === 'HOST') {
             if (window.syncManager.ws && window.syncManager.ws.readyState === WebSocket.OPEN) {
@@ -1331,6 +1331,11 @@ function playTrack(trackData, forceLocal = false, isBackwardNav = false) {
     if (!trackData || (!trackData.preview && !trackData.videoId && !trackData.id)) {
         showToast('Stream URL not available', 'error');
         return;
+    }
+
+    // Keep unified playerQueueStore in sync if track was initiated externally (Step 1)
+    if (!fromQueueStore && window.playerQueueStore) {
+        window.playerQueueStore.play(trackData);
     }
 
     // Record session feedback on outgoing track (skip vs complete)
@@ -1348,9 +1353,33 @@ function playTrack(trackData, forceLocal = false, isBackwardNav = false) {
                     sessionId: state.user?.id || 'guest_session'
                 })
             }).catch(() => {});
+
+            // Log event to /api/events (Step 3)
+            api('/events', {
+                method: 'POST',
+                body: JSON.stringify({
+                    songId: String(state.currentTrack.id),
+                    eventType: action,
+                    listenedSeconds: elapsedSec,
+                    durationSeconds: state.currentTrack.duration || 0
+                })
+            }).catch(() => {});
         }
     }
     state.currentTrackStartTime = Date.now();
+
+    // Log play event to /api/events (Step 3)
+    if (trackData && trackData.id) {
+        api('/events', {
+            method: 'POST',
+            body: JSON.stringify({
+                songId: String(trackData.id),
+                eventType: 'play',
+                listenedSeconds: 0,
+                durationSeconds: trackData.duration || 0
+            })
+        }).catch(() => {});
+    }
 
     // Save outgoing track into previousTracks (unless navigating backwards)
     if (state.currentTrack && state.currentTrack.id && String(state.currentTrack.id) !== String(trackData.id) && !isBackwardNav) {
@@ -1428,17 +1457,45 @@ function playFromList(tracks, index = 0, contextName = 'Current Context') {
     state.contextQueue = tracks.map(t => wrapQueueEntry(t, 'CONTEXT'));
     state.contextIndex = Math.max(0, Math.min(index, state.contextQueue.length - 1));
     saveQueueState();
-    playTrack(state.contextQueue[state.contextIndex]);
+
+    if (window.playerQueueStore) {
+        window.playerQueueStore.replace(tracks, 'CONTEXT', state.contextIndex);
+    }
+
+    playTrack(state.contextQueue[state.contextIndex], false, false, true);
 }
 
-function playNext(isUserInitiated = false) {
+let lastNavClickTimestamp = 0;
+
+function playNext(isUserInitiated = false, isAutoSkipOnError = false) {
+    const now = Date.now();
+    // Guard against rapid duplicate clicks within 250ms (Step 4)
+    if (isUserInitiated && (now - lastNavClickTimestamp < 250)) {
+        return;
+    }
+    lastNavClickTimestamp = now;
+
     // 1. If repeat is 'one', only loop current song when it ended naturally.
-    if (state.repeat === 'one' && !isUserInitiated) {
+    if (state.repeat === 'one' && !isUserInitiated && !isAutoSkipOnError) {
         if (window.playbackManager) {
             window.playbackManager.seekTo(0);
             window.playbackManager.play();
         }
         return;
+    }
+
+    // Single Source of Truth: Unified PlayerQueueStore (Step 1, Step 4)
+    if (window.playerQueueStore) {
+        const nextItem = window.playerQueueStore.next(isUserInitiated);
+        if (nextItem && nextItem.song) {
+            playTrack(nextItem.song, false, false, true);
+            return;
+        } else if (window.playerQueueStore.getUpcomingItems().length === 0 && !isAutoSkipOnError) {
+            state.isPlaying = false;
+            updatePlayPauseButton();
+            renderQueueDrawer();
+            return;
+        }
     }
 
     // 2. TIER 1: USER_QUEUE (Ported from BASA 2.0 QueueTimeline.kt — explicit user additions play first!)
@@ -1498,10 +1555,29 @@ function playNext(isUserInitiated = false) {
 }
 
 function playPrev() {
+    const now = Date.now();
+    if (now - lastNavClickTimestamp < 250) {
+        return;
+    }
+    lastNavClickTimestamp = now;
+
     // 1. If playing > 3 seconds in, restart the song (standard music player UX)
     if (window.playbackManager && window.playbackManager.getCurrentTime() > 3) {
         window.playbackManager.seekTo(0);
         return;
+    }
+
+    // Unified PlayerQueueStore (Step 1, Step 4)
+    if (window.playerQueueStore) {
+        const prevItem = window.playerQueueStore.previous(() => 
+            window.playbackManager ? window.playbackManager.getCurrentTime() : 0
+        );
+        if (prevItem && prevItem.song) {
+            playTrack(prevItem.song, false, true, true);
+            return;
+        } else {
+            return;
+        }
     }
 
     // 2. If in active context list and not at the beginning:
@@ -1537,11 +1613,14 @@ function playPrev() {
 
 function addToQueue(trackData) {
     if (!trackData) return;
+    if (window.playerQueueStore) {
+        window.playerQueueStore.add(trackData, 'USER_ADDED');
+    }
     const entry = wrapQueueEntry(trackData, 'USER_QUEUE');
     if (!state.userQueue) state.userQueue = [];
     state.userQueue.push(entry);
     saveQueueState();
-    showToast(`Added "${entry.title}" to Queue`, 'info');
+    showToast(`Added "${trackData.title || 'song'}" to Queue`, 'info');
     updateQueueBadge();
     renderQueueDrawer();
 }
@@ -1557,6 +1636,9 @@ function addToQueueFromData(encodedData) {
 
 function playNextInQueue(trackData) {
     if (!trackData) return;
+    if (window.playerQueueStore) {
+        window.playerQueueStore.playNext(trackData);
+    }
     const entry = wrapQueueEntry(trackData, 'USER_QUEUE');
     if (!state.userQueue) state.userQueue = [];
     if (!state.currentTrack) {
@@ -1565,7 +1647,7 @@ function playNextInQueue(trackData) {
     } else {
         state.userQueue.unshift(entry);
         saveQueueState();
-        showToast(`"${entry.title}" will play next`, 'info');
+        showToast(`"${trackData.title || 'song'}" will play next`, 'info');
         updateQueueBadge();
         renderQueueDrawer();
     }
@@ -1580,10 +1662,13 @@ function playNextInQueueFromData(encodedData) {
     }
 }
 
-function removeFromQueue(identifier) {
+function removeFromQueue(identifier, songId = null) {
+    if (window.playerQueueStore) {
+        window.playerQueueStore.remove(identifier, songId);
+    }
     if (typeof identifier === 'string') {
-        state.userQueue = (state.userQueue || []).filter(item => item.queueEntryId !== identifier);
-        state.contextQueue = (state.contextQueue || []).filter(item => item.queueEntryId !== identifier);
+        state.userQueue = (state.userQueue || []).filter(item => item.queueEntryId !== identifier && item.id !== identifier);
+        state.contextQueue = (state.contextQueue || []).filter(item => item.queueEntryId !== identifier && item.id !== identifier);
     } else if (typeof identifier === 'number') {
         const userLen = state.userQueue ? state.userQueue.length : 0;
         if (identifier < userLen) {
@@ -1599,18 +1684,48 @@ function removeFromQueue(identifier) {
     saveQueueState();
     updateQueueBadge();
     renderQueueDrawer();
-    showToast('Removed from queue');
+    showToast('Removed from queue · <a href="#" onclick="undoQueueAction();return false;" style="color:#38ef7d;font-weight:600;text-decoration:underline;">Undo</a>', 'info');
+}
+
+function undoQueueAction() {
+    if (window.playerQueueStore) {
+        const ok = window.playerQueueStore.undo();
+        if (ok) {
+            updateQueueBadge();
+            renderQueueDrawer();
+            showToast('Restored previous queue item', 'info');
+            return;
+        }
+    }
+    showToast('Nothing to undo', 'info');
 }
 
 function clearUserQueue() {
+    if (window.playerQueueStore) {
+        window.playerQueueStore.clear('USER_ADDED');
+    }
     state.userQueue = [];
     saveQueueState();
     updateQueueBadge();
     renderQueueDrawer();
-    showToast('Manual queue cleared');
+    showToast('Manual queue cleared · <a href="#" onclick="undoQueueAction();return false;" style="color:#38ef7d;font-weight:600;text-decoration:underline;">Undo</a>', 'info');
+}
+
+function clearAutoplay() {
+    if (window.playerQueueStore) {
+        window.playerQueueStore.clearAutoplay();
+    }
+    state.recommendedQueue = [];
+    saveQueueState();
+    updateQueueBadge();
+    renderQueueDrawer();
+    showToast('Autoplay recommendations cleared · <a href="#" onclick="undoQueueAction();return false;" style="color:#38ef7d;font-weight:600;text-decoration:underline;">Undo</a>', 'info');
 }
 
 function clearQueue() {
+    if (window.playerQueueStore) {
+        window.playerQueueStore.clear();
+    }
     state.userQueue = [];
     if (state.contextQueue) {
         state.contextQueue = state.contextQueue.slice(0, state.contextIndex + 1);
@@ -1619,7 +1734,7 @@ function clearQueue() {
     saveQueueState();
     updateQueueBadge();
     renderQueueDrawer();
-    showToast('Upcoming queue cleared');
+    showToast('Upcoming queue cleared · <a href="#" onclick="undoQueueAction();return false;" style="color:#38ef7d;font-weight:600;text-decoration:underline;">Undo</a>', 'info');
 }
 
 function clearPreviousTracks() {
@@ -1836,12 +1951,20 @@ function renderQueueDrawer() {
     if (upnextContainer) {
         let contentHtml = '';
 
-        // TIER 1: USER QUEUE (Explicit user additions with drag-to-reorder)
-        if (state.userQueue && state.userQueue.length > 0) {
-            const userItemsHtml = state.userQueue.map((track, uIdx) => {
-                const cover = track.cover || '';
-                const entryId = track.queueEntryId || `u_${uIdx}`;
+        // TIER 1: USER QUEUE / PLAY NEXT (Explicit user additions with drag-to-reorder)
+        const userItems = window.playerQueueStore 
+            ? window.playerQueueStore.getUserQueueItems().map(it => ({ ...it.song, queueItemId: it.queueItemId, source: it.source }))
+            : (state.userQueue || []);
+
+        if (userItems.length > 0) {
+            const hasUndo = Boolean(window.playerQueueStore && window.playerQueueStore.undoStack.length > 0);
+            const userItemsHtml = userItems.map((track, uIdx) => {
+                const cover = track.coverUrl || track.cover || '';
+                const entryId = track.queueItemId || track.queueEntryId || `u_${uIdx}`;
                 const qualityHtml = renderQualityBadge(track);
+                const isPlayNext = track.source === 'PLAY_NEXT';
+                const tagLabel = isPlayNext ? '<span class="queue-autoplay-pill" style="margin-left:4px;">Play Next</span>' : '';
+
                 return `
                     <div class="queue-item" draggable="true"
                          ondragstart="handleQueueDragStart(event, ${uIdx}, 'userQueue')"
@@ -1854,12 +1977,12 @@ function renderQueueDrawer() {
                             <div class="queue-item-play-overlay">▶</div>
                         </div>
                         <div class="queue-item-info">
-                            <span class="queue-item-title">${escapeHtml(track.title || 'Unknown')}</span>
+                            <span class="queue-item-title">${escapeHtml(track.title || 'Unknown')} ${tagLabel}</span>
                             <span class="queue-item-artist">${escapeHtml(track.artist || 'Unknown Artist')}</span>
                             ${qualityHtml}
                         </div>
                         <div class="queue-item-actions">
-                            <button class="queue-item-remove-btn" onclick="event.stopPropagation();removeFromQueue('${entryId}')" title="Remove from Queue">✕</button>
+                            <button class="queue-item-remove-btn" onclick="event.stopPropagation();removeFromQueue('${entryId}', '${track.id || ''}')" title="Remove from Queue">✕</button>
                         </div>
                     </div>
                 `;
@@ -1867,25 +1990,34 @@ function renderQueueDrawer() {
 
             contentHtml += `
                 <div class="queue-section-subhead queue-subhead-user" style="display:flex; justify-content:space-between; align-items:center;">
-                    <span>📌 NEXT IN QUEUE (${state.userQueue.length})</span>
-                    <button class="queue-mini-clear-btn" onclick="clearUserQueue()" title="Clear manual user queue">Clear</button>
+                    <span>📌 PLAYING NEXT (${userItems.length})</span>
+                    <div style="display:flex; gap:6px;">
+                        ${hasUndo ? '<button class="queue-mini-clear-btn" style="color:#38ef7d;border-color:rgba(56,239,125,0.4);" onclick="undoQueueAction()" title="Undo last remove/clear">Undo</button>' : ''}
+                        <button class="queue-mini-clear-btn" onclick="clearUserQueue()" title="Clear manual user queue">Clear</button>
+                    </div>
                 </div>
                 ${userItemsHtml}
             `;
         }
 
         // TIER 2: CONTEXT QUEUE (Remaining tracks from album, playlist, or initial search)
-        const contextUpcoming = [];
-        if (state.contextQueue) {
+        let contextUpcoming = [];
+        if (window.playerQueueStore) {
+            contextUpcoming = window.playerQueueStore.getContextItems().map((it, idx) => ({
+                track: it.song,
+                index: idx,
+                queueItemId: it.queueItemId
+            }));
+        } else if (state.contextQueue) {
             for (let i = (state.contextIndex || 0) + 1; i < state.contextQueue.length; i++) {
-                contextUpcoming.push({ track: state.contextQueue[i], index: i });
+                contextUpcoming.push({ track: state.contextQueue[i], index: i, queueItemId: state.contextQueue[i].queueEntryId });
             }
         }
 
         if (contextUpcoming.length > 0) {
-            const contextItemsHtml = contextUpcoming.map(({ track, index }) => {
-                const cover = track.cover || '';
-                const entryId = track.queueEntryId || `c_${index}`;
+            const contextItemsHtml = contextUpcoming.map(({ track, index, queueItemId }) => {
+                const cover = track.coverUrl || track.cover || '';
+                const entryId = queueItemId || track.queueEntryId || `c_${index}`;
                 return `
                     <div class="queue-item" onclick="playFromQueueIndex(${index}, 'CONTEXT')">
                         <div class="queue-item-thumb-wrap">
@@ -1897,7 +2029,7 @@ function renderQueueDrawer() {
                             <span class="queue-item-artist">${escapeHtml(track.artist || 'Unknown Artist')}</span>
                         </div>
                         <div class="queue-item-actions">
-                            <button class="queue-item-remove-btn" onclick="event.stopPropagation();removeFromQueue('${entryId}')" title="Remove from Context Queue">✕</button>
+                            <button class="queue-item-remove-btn" onclick="event.stopPropagation();removeFromQueue('${entryId}', '${track.id || ''}')" title="Remove from Context Queue">✕</button>
                         </div>
                     </div>
                 `;
@@ -1912,10 +2044,15 @@ function renderQueueDrawer() {
         }
 
         // TIER 3: AUTOPLAY / SUGGESTIONS (Endless musical continuation)
-        if (state.autoplayEnabled !== false && state.recommendedQueue && state.recommendedQueue.length > 0) {
-            const recItemsHtml = state.recommendedQueue.map((track, rIdx) => {
-                const cover = track.cover || '';
-                const reason = track.reason || 'Musical continuation';
+        const autoItems = window.playerQueueStore
+            ? window.playerQueueStore.getAutoplayItems().map(it => ({ ...it.song, queueItemId: it.queueItemId }))
+            : (state.recommendedQueue || []);
+
+        if (state.autoplayEnabled !== false && autoItems.length > 0) {
+            const recItemsHtml = autoItems.map((track, rIdx) => {
+                const cover = track.coverUrl || track.cover || '';
+                const reason = track.reason || (track.mood ? `Vibe · ${track.mood}` : 'Musical continuity');
+                const entryId = track.queueItemId || track.queueEntryId || `a_${rIdx}`;
                 const encoded = encodeURIComponent(JSON.stringify(track));
                 return `
                     <div class="queue-item" onclick="playTrackFromData('${encoded}')">
@@ -1928,8 +2065,9 @@ function renderQueueDrawer() {
                             <span class="queue-item-artist">${escapeHtml(track.artist || 'Unknown Artist')}</span>
                             <span class="rec-reason-pill">${escapeHtml(reason)}</span>
                         </div>
-                        <div class="queue-item-actions">
+                        <div class="queue-item-actions" style="display:flex; align-items:center; gap:6px;">
                             <button class="queue-action-link" style="font-size:11px;" onclick="event.stopPropagation();addToQueueFromData('${encoded}')" title="Add to Queue">+ Queue</button>
+                            <button class="queue-item-remove-btn" onclick="event.stopPropagation();removeFromQueue('${entryId}', '${track.id || ''}')" title="Remove from Autoplay">✕</button>
                         </div>
                     </div>
                 `;
@@ -1941,7 +2079,10 @@ function renderQueueDrawer() {
                         <span>✨ AUTOPLAY · SIMILAR SONGS</span>
                         <span class="queue-autoplay-pill">Radio</span>
                     </div>
-                    <span style="font-size:10px; opacity:0.6;">Plays when queue finishes</span>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span style="font-size:10px; opacity:0.6;">Plays when queue finishes</span>
+                        <button class="queue-mini-clear-btn" onclick="clearAutoplay()" title="Clear autoplay recommendations">Clear</button>
+                    </div>
                 </div>
                 ${recItemsHtml}
             `;
@@ -2197,15 +2338,33 @@ function setupPlayer() {
     if (shuffleBtn) {
         shuffleBtn.addEventListener('click', () => {
             state.shuffle = !state.shuffle;
+            if (window.playerQueueStore) {
+                window.playerQueueStore.setShuffle(state.shuffle);
+            }
             shuffleBtn.classList.toggle('active', state.shuffle);
-            showToast(state.shuffle ? 'Shuffle on' : 'Shuffle off');
+            showToast(state.shuffle ? 'Shuffle on (Bag mode)' : 'Shuffle off (Order restored)');
         });
     }
     if (repeatBtn) {
         repeatBtn.addEventListener('click', () => {
-            if (state.repeat === 'none') { state.repeat = 'all'; repeatBtn.classList.add('active'); repeatBtn.textContent = '🔁'; showToast('Repeat all'); }
-            else if (state.repeat === 'all') { state.repeat = 'one'; repeatBtn.textContent = '🔂'; showToast('Repeat one'); }
-            else { state.repeat = 'none'; repeatBtn.classList.remove('active'); repeatBtn.textContent = '↻'; showToast('Repeat off'); }
+            if (state.repeat === 'none' || state.repeat === 'off') { 
+                state.repeat = 'all'; 
+                repeatBtn.classList.add('active'); 
+                repeatBtn.textContent = '🔁'; 
+                showToast('Repeat all'); 
+            } else if (state.repeat === 'all') { 
+                state.repeat = 'one'; 
+                repeatBtn.textContent = '🔂'; 
+                showToast('Repeat one'); 
+            } else { 
+                state.repeat = 'off'; 
+                repeatBtn.classList.remove('active'); 
+                repeatBtn.textContent = '↻'; 
+                showToast('Repeat off'); 
+            }
+            if (window.playerQueueStore) {
+                window.playerQueueStore.setRepeat(state.repeat === 'none' ? 'off' : state.repeat);
+            }
         });
     }
 
@@ -3135,6 +3294,27 @@ document.addEventListener('DOMContentLoaded', () => {
         showView('view-home');
         loadHome();
     }
+
+    // Step 5: Restore queue and track details after refresh without auto-playing
+    if (window.playerQueueStore) {
+        window.playerQueueStore.subscribe(() => {
+            renderQueueDrawer();
+        });
+
+        const currentSong = window.playerQueueStore.getCurrentSong();
+        if (currentSong) {
+            state.currentTrack = currentSong;
+            updatePlayerUI(currentSong);
+            renderQueueDrawer();
+            // Note: Does NOT auto-play so user retains control
+        }
+    }
+
+    window.addEventListener('basa:play_track', (e) => {
+        if (e && e.detail) {
+            playTrack(e.detail, false, false, true);
+        }
+    });
 });
 
 // 17. FULL SCREEN PLAYER & LIQUID GLASS PHYSICS
@@ -3718,6 +3898,9 @@ window.addToQueue = addToQueue;
 window.addToQueueFromData = addToQueueFromData;
 window.playNextInQueue = playNextInQueue;
 window.removeFromQueue = removeFromQueue;
+window.undoQueueAction = undoQueueAction;
+window.clearUserQueue = clearUserQueue;
+window.clearAutoplay = clearAutoplay;
 window.clearQueue = clearQueue;
 window.clearPreviousTracks = clearPreviousTracks;
 window.replayPreviousTrack = replayPreviousTrack;

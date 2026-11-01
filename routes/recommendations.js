@@ -32,17 +32,19 @@ function getUserId(req) {
 router.get('/recommendations/next', (req, res) => {
     try {
         const engine = getEngine(req);
-        const { seedSongId, limit = 20, exclude = '' } = req.query;
+        const { seedSongId, seedIds = '', limit = 20, exclude = '' } = req.query;
 
         if (!seedSongId) {
             return res.status(400).json({ success: false, error: 'seedSongId is required' });
         }
 
         const excludeIds = exclude ? String(exclude).split(',').map(s => s.trim()).filter(Boolean) : [];
+        const multiSeedIds = seedIds ? String(seedIds).split(',').map(s => s.trim()).filter(Boolean) : [seedSongId];
         const userId = getUserId(req);
         const userHistory = engine.getUserHistory(userId);
 
         const recommendations = engine.getNextRecommendations(seedSongId, {
+            seedIds: multiSeedIds,
             limit: parseInt(limit, 10) || 20,
             exclude: excludeIds,
             userHistory
@@ -51,6 +53,7 @@ router.get('/recommendations/next', (req, res) => {
         res.json({
             success: true,
             seedSongId,
+            seedIds: multiSeedIds,
             count: recommendations.length,
             recommendations
         });
@@ -177,7 +180,7 @@ router.post('/events', (req, res) => {
             return res.status(400).json({ success: false, error: 'songId and eventType are required' });
         }
 
-        const validTypes = ['play', 'skip', 'like', 'complete'];
+        const validTypes = ['play', 'skip', 'like', 'complete', 'replay'];
         if (!validTypes.includes(eventType)) {
             return res.status(400).json({ success: false, error: `eventType must be one of: ${validTypes.join(', ')}` });
         }
@@ -199,4 +202,29 @@ router.post('/events', (req, res) => {
     }
 });
 
+/**
+ * DELETE /api/events
+ * Clears all listening history / signals for the current user (Step 3)
+ */
+router.delete('/events', (req, res) => {
+    try {
+        const engine = getEngine(req);
+        const userId = getUserId(req);
+        const success = engine.clearUserHistory(userId);
+
+        if (req.app.locals.saveDb) {
+            req.app.locals.saveDb();
+        }
+
+        res.json({
+            success,
+            message: 'User listening signals and history cleared successfully'
+        });
+    } catch (err) {
+        console.error('[RecommendationsAPI] clear events error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 module.exports = router;
+

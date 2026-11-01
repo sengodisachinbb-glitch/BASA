@@ -506,6 +506,16 @@ class PlaybackManager {
                 if (!recovered) {
                     this.setPlayerState('ERROR');
                     if (this.onError) this.onError(errorMsg);
+                    // Step 4: Auto-skip with a small notification instead of stopping playback
+                    const failedTitle = this.currentTrack?.title || 'Track';
+                    if (typeof showToast === 'function') {
+                        showToast(`⚠️ Unable to stream "${failedTitle}". Skipping to next track...`, 'warning');
+                    }
+                    setTimeout(() => {
+                        if (typeof window.playNext === 'function') {
+                            window.playNext(false, true);
+                        }
+                    }, 1200);
                 }
             }
         });

@@ -123,6 +123,7 @@ class WeightedMetadataScorer extends BaseScoringStrategy {
 
         const likedSongIds = userHistory.likedSongIds instanceof Set ? userHistory.likedSongIds : new Set(userHistory.likedSongIds || []);
         const likedArtists = userHistory.likedArtists instanceof Set ? userHistory.likedArtists : new Set(userHistory.likedArtists || []);
+        const replayedSongIds = userHistory.replayedSongIds instanceof Set ? userHistory.replayedSongIds : new Set(userHistory.replayedSongIds || []);
         const completedSongIds = userHistory.completedSongIds instanceof Set ? userHistory.completedSongIds : new Set(userHistory.completedSongIds || []);
         const skippedSongIds = userHistory.skippedSongIds instanceof Set ? userHistory.skippedSongIds : new Set(userHistory.skippedSongIds || []);
         const skippedArtists = userHistory.skippedArtists instanceof Set ? userHistory.skippedArtists : new Set(userHistory.skippedArtists || []);
@@ -130,9 +131,12 @@ class WeightedMetadataScorer extends BaseScoringStrategy {
 
         const candArtist = String(candidate.artist || '').toLowerCase().trim();
 
-        // 1. Boost for Liked or Completed songs
+        // 1. Boost for Liked, Replayed or Completed songs
         if (likedSongIds.has(candidate.id) || likedArtists.has(candArtist)) {
             score += adjust.likedBoost;
+        }
+        if (replayedSongIds.has(candidate.id)) {
+            score += (adjust.replayedBoost || 0.15);
         }
         if (completedSongIds.has(candidate.id)) {
             score += adjust.completedBoost;
@@ -164,6 +168,30 @@ class WeightedMetadataScorer extends BaseScoringStrategy {
             return 0;
         }
         return this.adjustForUserBehavior(baseSimilarity, candidate, userHistory);
+    }
+
+    /**
+     * Multi-seed scoring interface for natural radio drift (Step 2)
+     */
+    scoreMultiSeed(seedSongs, candidate, userHistory = {}, options = {}) {
+        if (!Array.isArray(seedSongs) || seedSongs.length === 0) {
+            return this.score(null, candidate, userHistory, options);
+        }
+        if (seedSongs.length === 1) {
+            return this.score(seedSongs[0], candidate, userHistory, options);
+        }
+        const n = seedSongs.length;
+        const weights = n === 2 ? [0.35, 0.65] : [0.20, 0.30, 0.50];
+        let totalScore = 0;
+        let totalWeight = 0;
+        for (let i = 0; i < n; i++) {
+            const w = weights[i] || (1 / n);
+            const s = this.calculateFeatureSimilarity(seedSongs[i], candidate);
+            totalScore += s * w;
+            totalWeight += w;
+        }
+        const combinedBase = totalWeight > 0 ? totalScore / totalWeight : 0;
+        return this.adjustForUserBehavior(combinedBase, candidate, userHistory);
     }
 
     _parseTags(tags) {
@@ -204,3 +232,4 @@ module.exports = {
     VectorEmbeddingScorer,
     defaultScorer: new WeightedMetadataScorer()
 };
+

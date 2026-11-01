@@ -103,6 +103,33 @@ class SyncManager {
             case 'SEEK':
             case 'LOAD_TRACK':
                 this.emit('playback_command', data);
+                // Check if queueSeq mismatches (Step 6)
+                if (data.queueSeq != null && window.playerQueueStore) {
+                    const localSeq = window.playerQueueStore.getState().sequence;
+                    if (localSeq !== data.queueSeq && this.role !== 'HOST') {
+                        this.requestFullQueue();
+                    }
+                }
+                break;
+
+            case 'QUEUE_METADATA':
+                if (window.playerQueueStore && this.role !== 'HOST') {
+                    const localSeq = window.playerQueueStore.getState().sequence;
+                    if (localSeq !== data.queueSeq) {
+                        this.requestFullQueue();
+                    }
+                }
+                this.emit('queue_metadata_received', data);
+                break;
+
+            case 'FULL_QUEUE_RESPONSE':
+                if (window.playerQueueStore && Array.isArray(data.items) && this.role !== 'HOST') {
+                    window.playerQueueStore.state.items = data.items.map(it => window.playerQueueStore._normalizeQueueItem(it));
+                    window.playerQueueStore.state.sequence = data.queueSeq;
+                    if (data.queueIndex != null) window.playerQueueStore.state.currentIndex = data.queueIndex;
+                    window.playerQueueStore._notify();
+                }
+                this.emit('full_queue_received', data);
                 break;
                 
             case 'ERROR':
@@ -144,19 +171,58 @@ class SyncManager {
 
     syncPlay(track, position) {
         if (this.role === 'HOST' && this.isConnected) {
-            this.ws.send(JSON.stringify({ type: 'SYNC_PLAY', track, position }));
+            const queueState = window.playerQueueStore ? window.playerQueueStore.getState() : {};
+            this.ws.send(JSON.stringify({
+                type: 'SYNC_PLAY',
+                track,
+                position,
+                queueSeq: queueState.sequence || 0,
+                queueIndex: queueState.currentIndex || 0,
+                queueLength: (queueState.items || []).length
+            }));
         }
     }
 
     syncPause(position) {
         if (this.role === 'HOST' && this.isConnected) {
-            this.ws.send(JSON.stringify({ type: 'SYNC_PAUSE', position }));
+            const queueState = window.playerQueueStore ? window.playerQueueStore.getState() : {};
+            this.ws.send(JSON.stringify({
+                type: 'SYNC_PAUSE',
+                position,
+                queueSeq: queueState.sequence || 0,
+                queueIndex: queueState.currentIndex || 0,
+                queueLength: (queueState.items || []).length
+            }));
         }
     }
 
     syncSeek(position) {
         if (this.role === 'HOST' && this.isConnected) {
-            this.ws.send(JSON.stringify({ type: 'SYNC_SEEK', position }));
+            const queueState = window.playerQueueStore ? window.playerQueueStore.getState() : {};
+            this.ws.send(JSON.stringify({
+                type: 'SYNC_SEEK',
+                position,
+                queueSeq: queueState.sequence || 0,
+                queueIndex: queueState.currentIndex || 0,
+                queueLength: (queueState.items || []).length
+            }));
+        }
+    }
+
+    sendQueue(items, queueSeq, queueIndex) {
+        if (this.role === 'HOST' && this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({
+                type: 'SET_QUEUE',
+                items,
+                queueSeq,
+                queueIndex
+            }));
+        }
+    }
+
+    requestFullQueue() {
+        if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({ type: 'REQUEST_FULL_QUEUE' }));
         }
     }
 }

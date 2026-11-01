@@ -102,6 +102,9 @@ function setupSyncRoomManager(server) {
                             currentRoom.playbackState.position = data.position;
                             currentRoom.playbackState.playing = true;
                             currentRoom.playbackState.updatedAt = Date.now();
+                            if (data.queueSeq != null) currentRoom.playbackState.queueSeq = data.queueSeq;
+                            if (data.queueIndex != null) currentRoom.playbackState.queueIndex = data.queueIndex;
+                            if (data.queueLength != null) currentRoom.playbackState.queueLength = data.queueLength;
                             
                             // Schedule 2000ms in future
                             const startAt = Date.now() + 2000;
@@ -110,6 +113,9 @@ function setupSyncRoomManager(server) {
                                 type: 'PLAY',
                                 track: currentRoom.playbackState.track,
                                 position: data.position,
+                                queueSeq: currentRoom.playbackState.queueSeq,
+                                queueIndex: currentRoom.playbackState.queueIndex,
+                                queueLength: currentRoom.playbackState.queueLength,
                                 startAt: startAt,
                                 serverTime: Date.now()
                             });
@@ -121,6 +127,9 @@ function setupSyncRoomManager(server) {
                             currentRoom.playbackState.position = data.position;
                             currentRoom.playbackState.playing = false;
                             currentRoom.playbackState.updatedAt = Date.now();
+                            if (data.queueSeq != null) currentRoom.playbackState.queueSeq = data.queueSeq;
+                            if (data.queueIndex != null) currentRoom.playbackState.queueIndex = data.queueIndex;
+                            if (data.queueLength != null) currentRoom.playbackState.queueLength = data.queueLength;
                             
                             // Schedule 500ms in future for pause (less latency needed)
                             const applyAt = Date.now() + 500;
@@ -128,6 +137,9 @@ function setupSyncRoomManager(server) {
                             broadcastToRoom(currentRoom, {
                                 type: 'PAUSE',
                                 position: data.position,
+                                queueSeq: currentRoom.playbackState.queueSeq,
+                                queueIndex: currentRoom.playbackState.queueIndex,
+                                queueLength: currentRoom.playbackState.queueLength,
                                 applyAt: applyAt,
                                 serverTime: Date.now()
                             });
@@ -138,12 +150,18 @@ function setupSyncRoomManager(server) {
                         if (currentRoom && currentRoom.hostId === clientId) {
                             currentRoom.playbackState.position = data.position;
                             currentRoom.playbackState.updatedAt = Date.now();
+                            if (data.queueSeq != null) currentRoom.playbackState.queueSeq = data.queueSeq;
+                            if (data.queueIndex != null) currentRoom.playbackState.queueIndex = data.queueIndex;
+                            if (data.queueLength != null) currentRoom.playbackState.queueLength = data.queueLength;
                             
                             const applyAt = Date.now() + 500;
                             
                             broadcastToRoom(currentRoom, {
                                 type: 'SEEK',
                                 position: data.position,
+                                queueSeq: currentRoom.playbackState.queueSeq,
+                                queueIndex: currentRoom.playbackState.queueIndex,
+                                queueLength: currentRoom.playbackState.queueLength,
                                 applyAt: applyAt,
                                 serverTime: Date.now()
                             });
@@ -156,12 +174,47 @@ function setupSyncRoomManager(server) {
                             currentRoom.playbackState.position = 0;
                             currentRoom.playbackState.playing = false;
                             currentRoom.playbackState.updatedAt = Date.now();
+                            if (data.queueSeq != null) currentRoom.playbackState.queueSeq = data.queueSeq;
+                            if (data.queueIndex != null) currentRoom.playbackState.queueIndex = data.queueIndex;
+                            if (data.queueLength != null) currentRoom.playbackState.queueLength = data.queueLength;
                             
                             broadcastToRoom(currentRoom, {
                                 type: 'LOAD_TRACK',
                                 track: data.track,
+                                queueSeq: currentRoom.playbackState.queueSeq,
+                                queueIndex: currentRoom.playbackState.queueIndex,
+                                queueLength: currentRoom.playbackState.queueLength,
                                 serverTime: Date.now()
                             });
+                        }
+                        break;
+
+                    case 'SET_QUEUE':
+                        // Step 6: Keep heavy queue array out of high-frequency playback ticks
+                        if (currentRoom && currentRoom.hostId === clientId) {
+                            currentRoom.queueItems = Array.isArray(data.items) ? data.items : [];
+                            currentRoom.playbackState.queueSeq = data.queueSeq || ((currentRoom.playbackState.queueSeq || 0) + 1);
+                            currentRoom.playbackState.queueIndex = data.queueIndex ?? 0;
+                            currentRoom.playbackState.queueLength = currentRoom.queueItems.length;
+
+                            broadcastToRoom(currentRoom, {
+                                type: 'QUEUE_METADATA',
+                                queueSeq: currentRoom.playbackState.queueSeq,
+                                queueLength: currentRoom.queueItems.length,
+                                queueIndex: currentRoom.playbackState.queueIndex
+                            });
+                        }
+                        break;
+
+                    case 'REQUEST_FULL_QUEUE':
+                        // Client requests full queue payload when queueSeq mismatches
+                        if (currentRoom) {
+                            ws.send(JSON.stringify({
+                                type: 'FULL_QUEUE_RESPONSE',
+                                queueSeq: currentRoom.playbackState.queueSeq || 0,
+                                queueIndex: currentRoom.playbackState.queueIndex || 0,
+                                items: currentRoom.queueItems || []
+                            }));
                         }
                         break;
                 }

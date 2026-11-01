@@ -1174,3 +1174,4 @@ module.exports = {
     SAMPLE_SONGS,
     seedDatabase
 };
+

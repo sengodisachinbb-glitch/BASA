@@ -22,6 +22,7 @@ module.exports = {
     // 2. Behavioral Adjustments based on User Events
     behaviorAdjustment: {
         likedBoost: 0.20,            // Boost score if user previously liked this song or artist
+        replayedBoost: 0.15,         // Boost score if user replayed the song
         completedBoost: 0.12,        // Boost score if user previously completed (>80% duration)
         skippedPenalty: 0.30,        // Penalty if user skipped within 30s
         recentNotPlayedBoost: 0.08   // Slight boost for songs known but not recently played
@@ -37,3 +38,4 @@ module.exports = {
         defaultBatchLimit: 20        // Default batch recommendation size
     }
 };
+
