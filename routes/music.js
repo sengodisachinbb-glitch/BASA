@@ -696,8 +696,8 @@ router.get('/resolve/:id', async (req, res) => {
         let baseTrack = null;
 
         // Check if trackId belongs to YouTube
-        if (!trackId.startsWith('ia_') && !trackId.startsWith('src_')) {
-            baseTrack = await youtubeProvider.resolve(trackId);
+        if (!trackId.startsWith('ia_') && !trackId.startsWith('src_') && !trackId.startsWith('saavn_') && !trackId.startsWith('sample_')) {
+            baseTrack = await youtubeProvider.resolve(trackId).catch(() => null);
         }
 
         if (!baseTrack) {

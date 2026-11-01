@@ -133,9 +133,25 @@ async function api(endpoint, options = {}) {
 }
 
 // 3. TOAST NOTIFICATIONS
+let lastToastMsg = '';
+let lastToastTime = 0;
+
 function showToast(message, type = 'info') {
+    const now = Date.now();
+    // Prevent spamming identical toasts within 1500ms
+    if (message === lastToastMsg && (now - lastToastTime < 1500)) {
+        return;
+    }
+    lastToastMsg = message;
+    lastToastTime = now;
+
     const container = document.getElementById('toast-container');
     if (!container) return;
+
+    // Cap maximum concurrent toasts on screen to 3
+    while (container.children.length >= 3) {
+        container.removeChild(container.firstChild);
+    }
 
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
@@ -780,6 +796,14 @@ function mapTrackToStandard(track, source = 'youtube') {
         artist = track.artist || 'Unknown Artist';
         preview = track.preview || track.audioUrl || '';
         audioUrl = preview;
+    } else if (effectiveSource === 'jiosaavn' || (track.id && String(track.id).startsWith('saavn_')) || (track.streamUrl && track.streamUrl.includes('saavncdn.com'))) {
+        id = track.id;
+        cover = track.cover || track.cover_url || (typeof track.artwork === 'string' ? track.artwork : (track.artwork?.['500x500'] || track.artwork?.url)) || '';
+        title = track.title || 'Unknown Title';
+        artist = track.artist || 'Unknown Artist';
+        const rawStream = track.streamUrl || track.directStreamUrl || track.audioUrl || '';
+        preview = (rawStream && rawStream.startsWith('http')) ? rawStream : `/api/music/jiosaavn-stream/${encodeURIComponent(track.id || track.sourceId || '')}`;
+        audioUrl = preview;
     } else {
         id = track.id || track.videoId;
         cover = track.cover || 
@@ -807,6 +831,7 @@ function mapTrackToStandard(track, source = 'youtube') {
         id, videoId: track.videoId || id || preview, title, artist, album: track.album?.title || track.album || '', cover, preview,
         duration: durationSec, durationMs, durationSec,
         audioUrl, fallbackUrl, source: effectiveSource,
+        streamUrl: track.streamUrl || track.directStreamUrl || (effectiveSource === 'jiosaavn' ? preview : (effectiveSource === 'local' ? preview : '')),
         sourceId: track.sourceId || id,
         quality: track.quality, format: track.format, codec: track.codec,
         lossless: Boolean(track.isLossless || track.lossless),
@@ -1319,6 +1344,9 @@ async function fetchUpNextRecommendations(trackData) {
 }
 
 function playTrack(trackData, forceLocal = false, isBackwardNav = false, fromQueueStore = false) {
+    if (!fromQueueStore && window.playbackManager) {
+        window.playbackManager.consecutiveAutoSkips = 0;
+    }
     if (!forceLocal && window.syncManager && window.syncManager.roomCode) {
         if (window.syncManager.role === 'HOST') {
             if (window.syncManager.ws && window.syncManager.ws.readyState === WebSocket.OPEN) {
@@ -1475,6 +1503,10 @@ function playNext(isUserInitiated = false, isAutoSkipOnError = false) {
     }
     lastNavClickTimestamp = now;
 
+    if (isUserInitiated && window.playbackManager) {
+        window.playbackManager.consecutiveAutoSkips = 0;
+    }
+
     // 1. If repeat is 'one', only loop current song when it ended naturally.
     if (state.repeat === 'one' && !isUserInitiated && !isAutoSkipOnError) {
         if (window.playbackManager) {
@@ -1560,6 +1592,10 @@ function playPrev() {
         return;
     }
     lastNavClickTimestamp = now;
+
+    if (window.playbackManager) {
+        window.playbackManager.consecutiveAutoSkips = 0;
+    }
 
     // 1. If playing > 3 seconds in, restart the song (standard music player UX)
     if (window.playbackManager && window.playbackManager.getCurrentTime() > 3) {

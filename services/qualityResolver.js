@@ -96,6 +96,11 @@ class QualityResolver {
             return 80;
         }
 
+        // JioSaavn direct CDN audio stream -> fast startup (~280ms)
+        if (candidate.source === 'jiosaavn') {
+            return 280;
+        }
+
         // YouTube IFrame video cued/loading -> fast startup (~350ms)
         if (candidate.source === 'youtube') {
             return 350;

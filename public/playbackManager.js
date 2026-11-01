@@ -91,6 +91,9 @@ class PlaybackManager {
         // Bounded Error Recovery (Feature C)
         this.MAX_RECOVERY_ATTEMPTS = 2;
         this.recoveryAttempts = 0;
+        this.consecutiveAutoSkips = 0;
+        this._autoSkipTimer = null;
+        this._isResolvingFallback = false;
         this.attemptedCandidateIds = new Set();
         this.currentCanonicalTrack = null;
 
@@ -358,6 +361,7 @@ class PlaybackManager {
             if (ytState === 1) {
                 this.isPlaying = true;
                 this.isLoadingTrack = false;
+                this.consecutiveAutoSkips = 0;
                 if (this.playerState === 'RESOLVING' || this.playerState === 'IDLE') {
                     this.setPlayerState(this.pendingUpgradeCandidate ? 'RESOLVING_LOSSLESS' : 'PLAYING_FAST_SOURCE');
                 }
@@ -385,10 +389,42 @@ class PlaybackManager {
 
         this.yt.onErrorCallback = (err) => {
             if (this.provider === 'youtube') {
-                const recovered = this.attemptPlaybackRecovery('YouTube error: ' + err);
+                const isEmbedBlocked = (err === 150 || err === 101 || String(err) === '150' || String(err) === '101');
+                const reason = isEmbedBlocked ? 'Video embedding restricted by owner' : ('YouTube error: ' + err);
+                const recovered = this.attemptPlaybackRecovery(reason);
                 if (!recovered) {
-                    this.setPlayerState('ERROR');
-                    if (this.onError) this.onError('YouTube playback error: ' + err);
+                    // Try asynchronous backend resolution if no local candidates exist
+                    const current = this.currentTrack;
+                    const canResolveBackend = current && (current.title || current.artist);
+                    
+                    if (canResolveBackend && !this._isResolvingFallback) {
+                        this._isResolvingFallback = true;
+                        const qTitle = encodeURIComponent(current.title || '');
+                        const qArtist = encodeURIComponent(current.artist || '');
+                        fetch(`/api/music/resolve/${encodeURIComponent(current.id || '')}?title=${qTitle}&artist=${qArtist}`)
+                            .then(r => r.json())
+                            .then(res => {
+                                this._isResolvingFallback = false;
+                                if (res && res.data && res.data.candidates) {
+                                    const viable = res.data.candidates.filter(c => 
+                                        c.source !== 'youtube' || (c.id !== current.id && c.videoId !== current.videoId)
+                                    );
+                                    if (viable.length > 0) {
+                                        console.log(`[PlaybackManager] Recovered alternative source: ${viable[0].source}`);
+                                        this._executeDirectLoad(viable[0]);
+                                        return;
+                                    }
+                                }
+                                this._handleUnrecoverableError(isEmbedBlocked ? `"${current.title || 'Track'}" is restricted from web playback.` : `YouTube playback error: ${err}`);
+                            })
+                            .catch(() => {
+                                this._isResolvingFallback = false;
+                                this._handleUnrecoverableError(isEmbedBlocked ? `"${current.title || 'Track'}" is restricted from web playback.` : `YouTube playback error: ${err}`);
+                            });
+                        return;
+                    }
+
+                    this._handleUnrecoverableError(isEmbedBlocked ? `"${current?.title || 'Track'}" is restricted from web playback.` : `YouTube playback error: ${err}`);
                 }
             }
         };
@@ -410,6 +446,7 @@ class PlaybackManager {
             if (this.isHtml5Provider() && audioElement === this.audio) {
                 this.isPlaying = true;
                 this.isLoadingTrack = false;
+                this.consecutiveAutoSkips = 0;
                 if (typeof window !== 'undefined' && window.dspEngine) {
                     window.dspEngine.initialize().then(() => {
                         window.dspEngine.attachMediaElement(audioElement);
@@ -504,21 +541,51 @@ class PlaybackManager {
                 // Attempt bounded playback error recovery
                 const recovered = this.attemptPlaybackRecovery(errorMsg);
                 if (!recovered) {
-                    this.setPlayerState('ERROR');
-                    if (this.onError) this.onError(errorMsg);
-                    // Step 4: Auto-skip with a small notification instead of stopping playback
-                    const failedTitle = this.currentTrack?.title || 'Track';
-                    if (typeof showToast === 'function') {
-                        showToast(`⚠️ Unable to stream "${failedTitle}". Skipping to next track...`, 'warning');
-                    }
-                    setTimeout(() => {
-                        if (typeof window.playNext === 'function') {
-                            window.playNext(false, true);
-                        }
-                    }, 1200);
+                    this._handleUnrecoverableError(errorMsg);
                 }
             }
         });
+    }
+
+    /**
+     * Centralized unrecoverable error handler with circuit-breaker protection.
+     * Prevents infinite auto-skip glitch loops when multiple tracks fail.
+     */
+    _handleUnrecoverableError(errorMsg) {
+        this.isLoadingTrack = false;
+        this.isPlaying = false;
+        this.setPlayerState('ERROR');
+
+        this.consecutiveAutoSkips = (this.consecutiveAutoSkips || 0) + 1;
+
+        if (this.consecutiveAutoSkips >= 3) {
+            this.consecutiveAutoSkips = 0;
+            const haltMsg = '⚠️ Playback paused: Multiple tracks in queue are restricted or unavailable.';
+            if (typeof showToast === 'function') {
+                showToast(haltMsg, 'warning');
+            }
+            if (this.onError) this.onError(haltMsg);
+            return;
+        }
+
+        const skipMsg = errorMsg && errorMsg.includes('restricted')
+            ? `⚠️ ${errorMsg} Skipping to next track...`
+            : `⚠️ Unable to stream "${this.currentTrack?.title || 'Track'}". Skipping to next track...`;
+
+        if (typeof showToast === 'function') {
+            showToast(skipMsg, 'warning');
+        }
+        if (this.onError) this.onError(skipMsg);
+
+        // Gentle, non-glitchy transition: wait 1200ms before advancing
+        if (typeof window !== 'undefined') {
+            clearTimeout(this._autoSkipTimer);
+            this._autoSkipTimer = setTimeout(() => {
+                if (typeof window.playNext === 'function') {
+                    window.playNext(false, true);
+                }
+            }, 1200);
+        }
     }
 
     get isReady() {
@@ -1473,6 +1540,15 @@ class PlaybackManager {
         if (viableCandidates.length === 0) {
             console.warn('[PlaybackManager] No untried viable candidates remaining for recovery.');
             return null;
+        }
+
+        // When recovering from a YouTube/embed error, prioritize non-YouTube candidates (JioSaavn, Lossless, etc.)
+        if (errorReason && (errorReason.includes('YouTube') || errorReason.includes('restricted') || errorReason.includes('owner'))) {
+            viableCandidates.sort((a, b) => {
+                const aYt = a.source === 'youtube' ? 1 : 0;
+                const bYt = b.source === 'youtube' ? 1 : 0;
+                return aYt - bYt;
+            });
         }
 
         // 5. Select next candidate

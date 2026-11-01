@@ -70,12 +70,6 @@ class YouTubeAudioPlayer {
     onPlayerError(event) {
         console.error('YouTube Player Error:', event.data);
         if (this.onErrorCallback) this.onErrorCallback(event.data);
-        // Advance to next valid track gracefully to prevent getting stuck
-        if (typeof window.playNext === 'function') {
-            setTimeout(() => window.playNext(), 50);
-        } else if (typeof playNext === 'function') {
-            setTimeout(() => playNext(), 50);
-        }
     }
 
     loadAndPlay(videoId) {
