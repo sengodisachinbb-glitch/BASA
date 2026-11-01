@@ -13,6 +13,30 @@ try {
     savedQueueTracks = JSON.parse(localStorage.getItem('basa_queue') || '[]');
 } catch (e) {}
 
+let savedUserQueue = [];
+try {
+    savedUserQueue = JSON.parse(localStorage.getItem('basa_user_queue') || '[]');
+} catch (e) {}
+
+let savedContextQueue = [];
+try {
+    savedContextQueue = JSON.parse(localStorage.getItem('basa_context_queue') || '[]');
+} catch (e) {}
+
+function generateQueueEntryId() {
+    return 'qe_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 9);
+}
+
+function wrapQueueEntry(track, tier = 'USER_QUEUE') {
+    if (!track) return null;
+    const qId = track.queueEntryId || generateQueueEntryId();
+    return {
+        ...track,
+        queueEntryId: qId,
+        tier: tier
+    };
+}
+
 const state = {
     user: null,
     token: localStorage.getItem('basa_token') || localStorage.getItem('liquid_music_token'),
@@ -20,6 +44,12 @@ const state = {
     currentPlaylistId: null,
     playlists: [],
     likedTrackIds: new Set(),
+    // Three-Tier Spotify/Apple Music Queue Architecture (Ported from BASA 2.0 QueueTimeline.kt)
+    userQueue: Array.isArray(savedUserQueue) ? savedUserQueue : [],
+    contextQueue: Array.isArray(savedContextQueue) ? savedContextQueue : (Array.isArray(savedQueueTracks) ? savedQueueTracks : []),
+    contextName: localStorage.getItem('basa_context_name') || 'Current Context',
+    contextIndex: parseInt(localStorage.getItem('basa_context_index') || '0', 10),
+    autoplayEnabled: localStorage.getItem('basa_autoplay_enabled') !== 'false',
     queue: Array.isArray(savedQueueTracks) ? savedQueueTracks : [],
     queueIndex: -1,
     previousTracks: Array.isArray(savedPrevTracks) ? savedPrevTracks : [],
@@ -40,7 +70,21 @@ const state = {
 function saveQueueState() {
     try {
         localStorage.setItem('basa_previous_tracks', JSON.stringify(state.previousTracks.slice(-50)));
-        localStorage.setItem('basa_queue', JSON.stringify(state.queue.slice(0, 100)));
+        localStorage.setItem('basa_user_queue', JSON.stringify((state.userQueue || []).slice(0, 50)));
+        localStorage.setItem('basa_context_queue', JSON.stringify((state.contextQueue || []).slice(0, 100)));
+        localStorage.setItem('basa_context_name', state.contextName || 'Current Context');
+        localStorage.setItem('basa_context_index', String(state.contextIndex || 0));
+        localStorage.setItem('basa_autoplay_enabled', String(state.autoplayEnabled !== false));
+
+        // Keep legacy basa_queue updated for compatibility with any external tools
+        const legacy = [
+            ...(state.contextQueue ? state.contextQueue.slice(0, (state.contextIndex || 0) + 1) : []),
+            ...(state.userQueue || []),
+            ...(state.contextQueue ? state.contextQueue.slice((state.contextIndex || 0) + 1) : [])
+        ];
+        state.queue = legacy;
+        state.queueIndex = state.contextIndex || 0;
+        localStorage.setItem('basa_queue', JSON.stringify(legacy.slice(0, 100)));
     } catch (e) {}
 }
 
@@ -894,6 +938,71 @@ function renderQualityBadge(track) {
     return '';
 }
 
+function renderPlayerQualityBadge(track) {
+    if (!track) return '';
+
+    const isCurrent = window.playbackManager && window.playbackManager.currentTrack && window.playbackManager.currentTrack.id === track.id;
+    const currentState = isCurrent ? window.playbackManager.playerState : null;
+    const provider = String(track.source || track.provider || (window.playbackManager ? window.playbackManager.provider : '') || '').toLowerCase();
+
+    // 1. Actively Upgrading State (Seamless crossfade in progress)
+    if (track.upgradeStatus === 'buffering' || currentState === 'PREPARING_UPGRADE' || currentState === 'UPGRADING') {
+        return `<div class="quality-badge badge-resolving" onclick="openPipelineInspectorModal()" style="cursor:pointer;" title="Buffering studio lossless stream for seamless handoff... Click to inspect audio signal path"><span class="badge-icon">⏳</span><span class="badge-title">UPGRADING</span><span class="badge-sep">·</span><span class="badge-meta">TO FLAC</span></div>`;
+    }
+
+    // 2. Actively Resolving Hi-Res / Lossless in Background
+    if (track.upgradeStatus === 'resolving' || currentState === 'RESOLVING_LOSSLESS' ||
+        (isCurrent && window.playbackManager && window.playbackManager.pendingUpgradeCandidate)) {
+        return `<div class="quality-badge badge-resolving" onclick="openPipelineInspectorModal()" style="cursor:pointer;" title="Resolving studio lossless stream in background... Click to inspect audio signal path"><span class="badge-icon">⚡</span><span class="badge-title">RESOLVING</span><span class="badge-sep">·</span><span class="badge-meta">HI-RES</span></div>`;
+    }
+
+    const fmtLower = String(track.codec || track.format || '').toLowerCase();
+    const isFlacOrLossless = fmtLower === 'flac' || fmtLower.includes('flac') || fmtLower === 'alac' || fmtLower === 'wav';
+
+    // 3. Verified Lossless Audio (FLAC / ALAC / WAV or Verified Source)
+    const isVerifiedLossless = isFlacOrLossless && (
+        track.verificationStatus === 'VERIFIED' ||
+        track.losslessVerification === 'VERIFIED' ||
+        track.playableLosslessVerified === true ||
+        track.isCached === true ||
+        track.cached === true ||
+        track.isLossless === true ||
+        track.quality === 'HI_RES_LOSSLESS' ||
+        track.quality === 'LOSSLESS' ||
+        provider === 'local'
+    );
+
+    if (isVerifiedLossless) {
+        const bitDepth = Number(track.bitDepth) || (track.quality === 'HI_RES_LOSSLESS' ? 24 : 16);
+        const sampleRate = Number(track.sampleRate) || (track.quality === 'HI_RES_LOSSLESS' ? 96000 : 44100);
+        const isHiRes = bitDepth > 16 || sampleRate > 48000 || track.quality === 'HI_RES_LOSSLESS';
+
+        const bitStr = `${bitDepth}-bit`;
+        const rateStr = `${Math.round(sampleRate / 1000)} kHz`;
+
+        if (isHiRes) {
+            return `<div class="quality-badge badge-hires" onclick="openPipelineInspectorModal()" style="cursor:pointer;" title="Hi-Res Lossless Audio (FLAC · ${bitStr} / ${rateStr}) — Click to inspect audio signal path"><span class="badge-icon">◆</span><span class="badge-title">HI-RES LOSSLESS</span><span class="badge-sep">·</span><span class="badge-meta">${bitDepth}/96 FLAC</span></div>`;
+        } else {
+            return `<div class="quality-badge badge-lossless" onclick="openPipelineInspectorModal()" style="cursor:pointer;" title="Studio Lossless Quality (FLAC · ${bitStr} / ${rateStr}) — Click to inspect audio signal path"><span class="badge-icon">✦</span><span class="badge-title">LOSSLESS</span><span class="badge-sep">·</span><span class="badge-meta">16/44.1 FLAC</span></div>`;
+        }
+    }
+
+    // 4. HD Audio (JioSaavn 320 kbps AAC / High Bitrate)
+    const isJioSaavn = provider === 'jiosaavn' || String(track.id || '').startsWith('saavn_') || Boolean(track.providerMetadata?.encrypted_media_url);
+    const bitrate = Number(track.bitrate) || (isJioSaavn ? 320 : null);
+
+    if (isJioSaavn || bitrate >= 320 || track.quality === 'HIGH') {
+        const codecStr = (track.codec || 'AAC').toUpperCase();
+        const bitStr = bitrate ? `${bitrate}k` : '320k';
+        return `<div class="quality-badge badge-high" onclick="openPipelineInspectorModal()" style="cursor:pointer;" title="High-Definition Audio (${bitStr} ${codecStr} · JioSaavn HD Stream) — Click to inspect audio signal path"><span class="badge-icon">✦</span><span class="badge-title">HD AUDIO</span><span class="badge-sep">·</span><span class="badge-meta">${bitStr} ${codecStr}</span></div>`;
+    }
+
+    // 5. Standard Quality Stream (YouTube Opus 160k / AAC 128-256k)
+    const codecStr = (track.codec || (provider === 'youtube' ? 'Opus' : 'AAC')).toUpperCase();
+    const bitStr = bitrate ? `${bitrate}k` : (codecStr === 'OPUS' ? '160k' : '160k');
+    return `<div class="quality-badge badge-standard" onclick="openPipelineInspectorModal()" style="cursor:pointer;" title="Standard Quality Stream (${bitStr} ${codecStr}) — Click to inspect audio signal path"><span class="badge-icon">●</span><span class="badge-title">STANDARD</span><span class="badge-sep">·</span><span class="badge-meta">${bitStr} ${codecStr}</span></div>`;
+}
+
 function renderTrackListItem(track, index, source, options = {}) {
     const trackObj = mapTrackToStandard(track, source);
     const encoded = encodeURIComponent(JSON.stringify(trackObj));
@@ -1313,64 +1422,73 @@ function playTrack(trackData, forceLocal = false, isBackwardNav = false) {
     }
 }
 
-function playFromList(tracks, index = 0) {
+function playFromList(tracks, index = 0, contextName = 'Current Context') {
     if (!tracks || tracks.length === 0) return;
-    state.queue = tracks;
-    state.queueIndex = Math.max(0, Math.min(index, tracks.length - 1));
+    state.contextName = contextName || 'Current Context';
+    state.contextQueue = tracks.map(t => wrapQueueEntry(t, 'CONTEXT'));
+    state.contextIndex = Math.max(0, Math.min(index, state.contextQueue.length - 1));
     saveQueueState();
-    playTrack(state.queue[state.queueIndex]);
+    playTrack(state.contextQueue[state.contextIndex]);
 }
 
 function playNext(isUserInitiated = false) {
-    // If repeat is 'one', only loop current song when it ended naturally.
+    // 1. If repeat is 'one', only loop current song when it ended naturally.
     if (state.repeat === 'one' && !isUserInitiated) {
-        window.playbackManager.seekTo(0);
-        window.playbackManager.play();
+        if (window.playbackManager) {
+            window.playbackManager.seekTo(0);
+            window.playbackManager.play();
+        }
         return;
     }
 
-    // 1. Manual Queue Priority (Section 35): Play explicitly queued user songs first!
-    repairManualQueue();
-    while (state.queue && state.queueIndex < state.queue.length - 1) {
-        state.queueIndex++;
-        const nextTrack = state.queue[state.queueIndex];
-        if (isShortTrack(nextTrack)) continue;
-        if (state.currentTrack && isSameSongFamily(state.currentTrack, nextTrack)) continue;
+    // 2. TIER 1: USER_QUEUE (Ported from BASA 2.0 QueueTimeline.kt — explicit user additions play first!)
+    if (state.userQueue && state.userQueue.length > 0) {
+        const nextTrack = state.userQueue.shift();
+        saveQueueState();
         playTrack(nextTrack);
         return;
     }
 
-    // 2. Context-Aware Smart Recommendation Queue (Section 18, 19, 21)
-    // Run dynamic queue repair before popping recommendation
-    repairRecommendedQueue();
-
-    while (state.recommendedQueue && state.recommendedQueue.length > 0) {
-        const nextTrack = state.recommendedQueue.shift();
-        if (isValidNextRecommendation(nextTrack, state.currentTrack, state.recentCanonicalTrackIds || [])) {
-            // Progressive refresh: replenish queue in background when running low
-            if (state.recommendedQueue.length <= 2) {
-                fetchUpNextRecommendations(nextTrack);
-            }
-            playTrack(nextTrack);
-            return;
-        }
-    }
-
-    // Fallback: If recommended queue ran out of valid songs, refresh
-    if (state.currentTrack) {
-        fetchUpNextRecommendations(state.currentTrack);
-    }
-
-    // 3. Fallback: Wrap around if repeat all, or charts
-    if (state.repeat === 'all' && state.queue && state.queue.length > 0) {
-        state.queueIndex = 0;
-        playTrack(state.queue[0]);
+    // 3. TIER 2: CONTEXT QUEUE (Next track from album, playlist, charts, or initial search)
+    if (state.contextQueue && state.contextIndex < state.contextQueue.length - 1) {
+        state.contextIndex++;
+        const nextTrack = state.contextQueue[state.contextIndex];
+        saveQueueState();
+        playTrack(nextTrack);
         return;
     }
 
+    // 4. TIER 3: AUTOPLAY / SUGGESTIONS (Endless musical continuation if AutoPlay is enabled)
+    if (state.autoplayEnabled !== false) {
+        repairRecommendedQueue();
+        while (state.recommendedQueue && state.recommendedQueue.length > 0) {
+            const nextTrack = state.recommendedQueue.shift();
+            if (isValidNextRecommendation(nextTrack, state.currentTrack, state.recentCanonicalTrackIds || [])) {
+                // Progressive replenishment: refill AutoPlay queue in background when running low
+                if (state.recommendedQueue.length <= 2) {
+                    fetchUpNextRecommendations(nextTrack);
+                }
+                playTrack(nextTrack);
+                return;
+            }
+        }
+        // Fallback: If recommended queue ran out of songs, refresh with current track
+        if (state.currentTrack) {
+            fetchUpNextRecommendations(state.currentTrack);
+        }
+    }
+
+    // 5. Repeat All (Wrap around context)
+    if (state.repeat === 'all' && state.contextQueue && state.contextQueue.length > 0) {
+        state.contextIndex = 0;
+        playTrack(state.contextQueue[0]);
+        return;
+    }
+
+    // Fallback: Charts context
     if (window.currentChartsTracks && window.currentChartsTracks.length > 0) {
         const contextList = window.currentChartsTracks.map(t => mapTrackToStandard(t, t.source || 'youtube'));
-        playFromList(contextList, 0);
+        playFromList(contextList, 0, 'Top Charts');
         return;
     }
 
@@ -1386,39 +1504,21 @@ function playPrev() {
         return;
     }
 
-    // 2. If we are in an active queue list and not at the beginning:
-    if (state.queueIndex > 0 && state.queue.length > 0) {
-        let attempts = 0;
-        while (attempts < state.queue.length) {
-            if (state.queueIndex > 0) {
-                state.queueIndex--;
-            } else if (state.repeat === 'all') {
-                state.queueIndex = state.queue.length - 1;
-            } else {
-                break;
-            }
-            const prevTrack = state.queue[state.queueIndex];
-            if (!isShortTrack(prevTrack)) {
-                playTrack(prevTrack, false, true);
-                return;
-            }
-            attempts++;
-        }
+    // 2. If in active context list and not at the beginning:
+    if (state.contextQueue && state.contextIndex > 0) {
+        state.contextIndex--;
+        const prevTrack = state.contextQueue[state.contextIndex];
+        saveQueueState();
+        playTrack(prevTrack, false, true);
+        return;
     }
 
-    // 3. If at start of queue (or standalone song) and we have previous tracks in history:
+    // 3. If previous tracks history has items:
     if (state.previousTracks && state.previousTracks.length > 0) {
         const prevTrack = state.previousTracks.pop();
         if (state.currentTrack) {
-            if (state.queue.length === 0 || state.queue[state.queueIndex]?.id !== state.currentTrack.id) {
-                state.queue = [prevTrack, state.currentTrack, ...state.queue];
-            } else {
-                state.queue.unshift(prevTrack);
-            }
-            state.queueIndex = 0;
-        } else {
-            state.queue.unshift(prevTrack);
-            state.queueIndex = 0;
+            if (!state.userQueue) state.userQueue = [];
+            state.userQueue.unshift(state.currentTrack);
         }
         saveQueueState();
         playTrack(prevTrack, false, true);
@@ -1432,14 +1532,16 @@ function playPrev() {
 }
 
 // ============================================
-// QUEUE & PREVIOUS SONGS MANAGEMENT
+// THREE-TIER QUEUE & PREVIOUS SONGS MANAGEMENT
 // ============================================
 
 function addToQueue(trackData) {
     if (!trackData) return;
-    state.queue.push(trackData);
+    const entry = wrapQueueEntry(trackData, 'USER_QUEUE');
+    if (!state.userQueue) state.userQueue = [];
+    state.userQueue.push(entry);
     saveQueueState();
-    showToast(`Added "${trackData.title}" to Queue`, 'info');
+    showToast(`Added "${entry.title}" to Queue`, 'info');
     updateQueueBadge();
     renderQueueDrawer();
 }
@@ -1455,41 +1557,65 @@ function addToQueueFromData(encodedData) {
 
 function playNextInQueue(trackData) {
     if (!trackData) return;
-    if (state.queue.length === 0 || state.queueIndex === -1) {
-        state.queue = [trackData];
-        state.queueIndex = 0;
-        playTrack(trackData);
+    const entry = wrapQueueEntry(trackData, 'USER_QUEUE');
+    if (!state.userQueue) state.userQueue = [];
+    if (!state.currentTrack) {
+        state.userQueue = [entry];
+        playTrack(entry);
     } else {
-        state.queue.splice(state.queueIndex + 1, 0, trackData);
+        state.userQueue.unshift(entry);
         saveQueueState();
-        showToast(`"${trackData.title}" will play next`, 'info');
+        showToast(`"${entry.title}" will play next`, 'info');
         updateQueueBadge();
         renderQueueDrawer();
     }
 }
 
-function removeFromQueue(index) {
-    if (index < 0 || index >= state.queue.length) return;
-    if (index < state.queueIndex) {
-        state.queueIndex--;
-    } else if (index === state.queueIndex) {
-        state.queueIndex = Math.max(0, state.queueIndex - 1);
+function playNextInQueueFromData(encodedData) {
+    try {
+        const trackData = JSON.parse(decodeURIComponent(encodedData));
+        playNextInQueue(trackData);
+    } catch (e) {
+        console.error('Failed to play next in queue', e);
     }
-    state.queue.splice(index, 1);
+}
+
+function removeFromQueue(identifier) {
+    if (typeof identifier === 'string') {
+        state.userQueue = (state.userQueue || []).filter(item => item.queueEntryId !== identifier);
+        state.contextQueue = (state.contextQueue || []).filter(item => item.queueEntryId !== identifier);
+    } else if (typeof identifier === 'number') {
+        const userLen = state.userQueue ? state.userQueue.length : 0;
+        if (identifier < userLen) {
+            state.userQueue.splice(identifier, 1);
+        } else {
+            const contextOffset = identifier - userLen;
+            const actualContextIdx = state.contextIndex + 1 + contextOffset;
+            if (state.contextQueue && actualContextIdx < state.contextQueue.length) {
+                state.contextQueue.splice(actualContextIdx, 1);
+            }
+        }
+    }
     saveQueueState();
     updateQueueBadge();
     renderQueueDrawer();
     showToast('Removed from queue');
 }
 
+function clearUserQueue() {
+    state.userQueue = [];
+    saveQueueState();
+    updateQueueBadge();
+    renderQueueDrawer();
+    showToast('Manual queue cleared');
+}
+
 function clearQueue() {
-    if (state.currentTrack) {
-        state.queue = [state.currentTrack];
-        state.queueIndex = 0;
-    } else {
-        state.queue = [];
-        state.queueIndex = -1;
+    state.userQueue = [];
+    if (state.contextQueue) {
+        state.contextQueue = state.contextQueue.slice(0, state.contextIndex + 1);
     }
+    state.recommendedQueue = [];
     saveQueueState();
     updateQueueBadge();
     renderQueueDrawer();
@@ -1509,28 +1635,55 @@ function replayPreviousTrack(index) {
     const track = state.previousTracks[index];
     state.previousTracks.splice(index, 1);
     if (state.currentTrack) {
-        state.queue.unshift(state.currentTrack);
-        state.queueIndex = 0;
+        if (!state.userQueue) state.userQueue = [];
+        state.userQueue.unshift(state.currentTrack);
     }
     saveQueueState();
     playTrack(track, false, true);
     showToast(`Playing "${track.title}"`, 'info');
 }
 
-function playFromQueueIndex(index) {
-    if (index < 0 || index >= state.queue.length) return;
-    state.queueIndex = index;
-    playTrack(state.queue[state.queueIndex]);
+function playFromQueueIndex(index, tier = 'CONTEXT') {
+    if (tier === 'USER_QUEUE') {
+        if (state.userQueue && index >= 0 && index < state.userQueue.length) {
+            const track = state.userQueue.splice(index, 1)[0];
+            saveQueueState();
+            playTrack(track);
+        }
+    } else {
+        if (state.contextQueue && index >= 0 && index < state.contextQueue.length) {
+            state.contextIndex = index;
+            saveQueueState();
+            playTrack(state.contextQueue[state.contextIndex]);
+        }
+    }
+}
+
+function toggleAutoPlay(enabled) {
+    state.autoplayEnabled = Boolean(enabled);
+    localStorage.setItem('basa_autoplay_enabled', String(state.autoplayEnabled));
+    const checkbox = document.getElementById('queue-autoplay-toggle');
+    if (checkbox) checkbox.checked = state.autoplayEnabled;
+    if (state.autoplayEnabled && (!state.recommendedQueue || state.recommendedQueue.length === 0) && state.currentTrack) {
+        fetchUpNextRecommendations(state.currentTrack);
+    }
+    updateQueueBadge();
+    renderQueueDrawer();
+    showToast(state.autoplayEnabled ? '⚡ AutoPlay enabled (endless radio)' : '⚡ AutoPlay paused', 'info');
 }
 
 function updateQueueBadge() {
     const upnextCountEl = document.getElementById('queue-upnext-count');
     const historyCountEl = document.getElementById('queue-history-count');
     const queueBtn = document.getElementById('queue-btn');
-    
-    const upcomingCount = Math.max(0, state.queue.length - (state.queueIndex + 1)) + (state.recommendedQueue ? state.recommendedQueue.length : 0);
+
+    const userCount = state.userQueue ? state.userQueue.length : 0;
+    const contextRemaining = state.contextQueue ? Math.max(0, state.contextQueue.length - (state.contextIndex + 1)) : 0;
+    const autoCount = (state.autoplayEnabled !== false && state.recommendedQueue) ? state.recommendedQueue.length : 0;
+    const upcomingCount = userCount + contextRemaining + autoCount;
+
     if (upnextCountEl) upnextCountEl.textContent = upcomingCount;
-    if (historyCountEl) historyCountEl.textContent = state.previousTracks.length;
+    if (historyCountEl) historyCountEl.textContent = state.previousTracks ? state.previousTracks.length : 0;
 
     if (queueBtn) {
         let dot = queueBtn.querySelector('.queue-btn-dot');
@@ -1614,6 +1767,12 @@ function switchQueueTab(tab) {
 function renderQueueDrawer() {
     updateQueueBadge();
 
+    // Sync AutoPlay toggle switch state
+    const autoPlayCheckbox = document.getElementById('queue-autoplay-toggle');
+    if (autoPlayCheckbox) {
+        autoPlayCheckbox.checked = state.autoplayEnabled !== false;
+    }
+
     // 1. Now Playing Section
     const nowCard = document.getElementById('queue-now-playing-card');
     const nowCover = document.getElementById('queue-now-cover');
@@ -1626,7 +1785,7 @@ function renderQueueDrawer() {
         if (nowCover) nowCover.src = state.currentTrack.cover || '';
         if (nowTitle) nowTitle.textContent = state.currentTrack.title || 'Unknown Title';
         if (nowArtist) nowArtist.textContent = state.currentTrack.artist || 'Unknown Artist';
-        if (nowBadge) nowBadge.innerHTML = renderQualityBadge(state.currentTrack);
+        if (nowBadge) nowBadge.innerHTML = renderPlayerQualityBadge(state.currentTrack);
         if (eqBars) eqBars.style.display = state.isPlaying ? 'flex' : 'none';
         if (nowCard) nowCard.style.opacity = '1';
     } else {
@@ -1638,22 +1797,58 @@ function renderQueueDrawer() {
         if (nowCard) nowCard.style.opacity = '0.6';
     }
 
-    // 2. Up Next List (Manual Queue + Context-Aware Musical Recommendations)
+    // 2. Up Next List (Three-Tier Spotify/Apple Music Hierarchy)
     const upnextContainer = document.getElementById('queue-upnext-list');
     if (upnextContainer) {
-        const upcomingTracks = [];
-        for (let i = state.queueIndex + 1; i < state.queue.length; i++) {
-            upcomingTracks.push({ track: state.queue[i], index: i });
-        }
-
         let contentHtml = '';
 
-        // Render manual queue tracks first (Section 35)
-        if (upcomingTracks.length > 0) {
-            const manualItemsHtml = upcomingTracks.map(({ track, index }) => {
+        // TIER 1: USER QUEUE (Explicit user additions: Play Next / Add to Queue)
+        if (state.userQueue && state.userQueue.length > 0) {
+            const userItemsHtml = state.userQueue.map((track, uIdx) => {
                 const cover = track.cover || '';
+                const entryId = track.queueEntryId || `u_${uIdx}`;
+                const qualityHtml = renderQualityBadge(track);
                 return `
-                    <div class="queue-item" onclick="playFromQueueIndex(${index})">
+                    <div class="queue-item" onclick="playFromQueueIndex(${uIdx}, 'USER_QUEUE')">
+                        <div class="queue-item-thumb-wrap">
+                            <img class="queue-item-thumb" src="${cover}" alt="" onerror="this.style.opacity='0.2'">
+                            <div class="queue-item-play-overlay">▶</div>
+                        </div>
+                        <div class="queue-item-info">
+                            <span class="queue-item-title">${escapeHtml(track.title || 'Unknown')}</span>
+                            <span class="queue-item-artist">${escapeHtml(track.artist || 'Unknown Artist')}</span>
+                            ${qualityHtml}
+                        </div>
+                        <div class="queue-item-actions">
+                            <button class="queue-item-remove-btn" onclick="event.stopPropagation();removeFromQueue('${entryId}')" title="Remove from Queue">✕</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            contentHtml += `
+                <div class="queue-section-subhead queue-subhead-user" style="display:flex; justify-content:space-between; align-items:center;">
+                    <span>📌 NEXT IN QUEUE (${state.userQueue.length})</span>
+                    <button class="queue-mini-clear-btn" onclick="clearUserQueue()" title="Clear manual user queue">Clear</button>
+                </div>
+                ${userItemsHtml}
+            `;
+        }
+
+        // TIER 2: CONTEXT QUEUE (Remaining tracks from album, playlist, or initial search)
+        const contextUpcoming = [];
+        if (state.contextQueue) {
+            for (let i = (state.contextIndex || 0) + 1; i < state.contextQueue.length; i++) {
+                contextUpcoming.push({ track: state.contextQueue[i], index: i });
+            }
+        }
+
+        if (contextUpcoming.length > 0) {
+            const contextItemsHtml = contextUpcoming.map(({ track, index }) => {
+                const cover = track.cover || '';
+                const entryId = track.queueEntryId || `c_${index}`;
+                return `
+                    <div class="queue-item" onclick="playFromQueueIndex(${index}, 'CONTEXT')">
                         <div class="queue-item-thumb-wrap">
                             <img class="queue-item-thumb" src="${cover}" alt="" onerror="this.style.opacity='0.2'">
                             <div class="queue-item-play-overlay">▶</div>
@@ -1663,23 +1858,25 @@ function renderQueueDrawer() {
                             <span class="queue-item-artist">${escapeHtml(track.artist || 'Unknown Artist')}</span>
                         </div>
                         <div class="queue-item-actions">
-                            <button class="queue-item-remove-btn" onclick="event.stopPropagation();removeFromQueue(${index})" title="Remove from Queue">✕</button>
+                            <button class="queue-item-remove-btn" onclick="event.stopPropagation();removeFromQueue('${entryId}')" title="Remove from Context Queue">✕</button>
                         </div>
                     </div>
                 `;
             }).join('');
 
             contentHtml += `
-                <div class="queue-section-subhead" style="color:#60a5fa;"><span>MANUAL QUEUE (${upcomingTracks.length})</span></div>
-                ${manualItemsHtml}
+                <div class="queue-section-subhead queue-subhead-context">
+                    <span>💿 NEXT FROM ${escapeHtml(state.contextName || 'CURRENT CONTEXT')} (${contextUpcoming.length})</span>
+                </div>
+                ${contextItemsHtml}
             `;
         }
 
-        // Render context-aware recommended queue (Section 18, 30, 40)
-        if (state.recommendedQueue && state.recommendedQueue.length > 0) {
+        // TIER 3: AUTOPLAY / SUGGESTIONS (Endless musical continuation)
+        if (state.autoplayEnabled !== false && state.recommendedQueue && state.recommendedQueue.length > 0) {
             const recItemsHtml = state.recommendedQueue.map((track, rIdx) => {
                 const cover = track.cover || '';
-                const reason = track.reason || 'Matches your vibe';
+                const reason = track.reason || 'Musical continuation';
                 const encoded = encodeURIComponent(JSON.stringify(track));
                 return `
                     <div class="queue-item" onclick="playTrackFromData('${encoded}')">
@@ -1690,13 +1887,23 @@ function renderQueueDrawer() {
                         <div class="queue-item-info">
                             <span class="queue-item-title">${escapeHtml(track.title || 'Unknown')}</span>
                             <span class="queue-item-artist">${escapeHtml(track.artist || 'Unknown Artist')}</span>
+                            <span class="rec-reason-pill">${escapeHtml(reason)}</span>
+                        </div>
+                        <div class="queue-item-actions">
+                            <button class="queue-action-link" style="font-size:11px;" onclick="event.stopPropagation();addToQueueFromData('${encoded}')" title="Add to Queue">+ Queue</button>
                         </div>
                     </div>
                 `;
             }).join('');
 
             contentHtml += `
-                <div class="queue-section-subhead"><span>✨ SMART UP NEXT · MUSICAL CONTINUATION</span></div>
+                <div class="queue-section-subhead queue-subhead-autoplay" style="display:flex; justify-content:space-between; align-items:center;">
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        <span>✨ AUTOPLAY · SIMILAR SONGS</span>
+                        <span class="queue-autoplay-pill">Radio</span>
+                    </div>
+                    <span style="font-size:10px; opacity:0.6;">Plays when queue finishes</span>
+                </div>
                 ${recItemsHtml}
             `;
         }
@@ -1845,17 +2052,17 @@ function updatePlayerUI(trackData) {
     
     const fsQualityContainer = document.getElementById('fs-quality-badge-container');
     if (fsQualityContainer) {
-        fsQualityContainer.innerHTML = renderQualityBadge(trackData);
+        fsQualityContainer.innerHTML = renderPlayerQualityBadge(trackData);
     }
 
     const playerQualityContainer = document.getElementById('player-quality-badge-container');
     if (playerQualityContainer) {
-        playerQualityContainer.innerHTML = renderQualityBadge(trackData);
+        playerQualityContainer.innerHTML = renderPlayerQualityBadge(trackData);
     }
 
     const queueNowBadge = document.getElementById('queue-now-badge');
     if (queueNowBadge) {
-        queueNowBadge.innerHTML = renderQualityBadge(trackData);
+        queueNowBadge.innerHTML = renderPlayerQualityBadge(trackData);
     }
 
     document.title = `${trackData.title} — ${trackData.artist} | BASA`;
@@ -4583,6 +4790,10 @@ function switchLibraryTab(tabName) {
             loadSpotifyCurated("Today's Top Hits");
         }
     } else if (tabName === 'ytmusic') {
+        const grid = document.getElementById('ytmusic-results-grid');
+        if (grid && (grid.querySelector('.empty-state') || !grid.children.length)) {
+            loadYTMusicCurated('Trending Music Global');
+        }
         const input = document.getElementById('ytmusic-search-input');
         if (input) input.focus();
     }
@@ -4827,6 +5038,25 @@ async function searchYTMusicTracks() {
     }
 }
 
+async function loadYTMusicCurated(query = 'Trending Music Global') {
+    const input = document.getElementById('ytmusic-search-input');
+    if (input) input.value = query;
+    const grid = document.getElementById('ytmusic-results-grid');
+    if (!grid) return;
+    grid.innerHTML = `<div class="loader">Loading YouTube Music for "${escapeHtml(query)}"...</div>`;
+    try {
+        const res = await api(`/music/providers/ytmusic/search?q=${encodeURIComponent(query)}&limit=24`);
+        const tracks = res.data || res.tracks || [];
+        if (tracks.length === 0) {
+            grid.innerHTML = `<p class="empty-state">No YouTube Music tracks found for "${escapeHtml(query)}".</p>`;
+            return;
+        }
+        grid.innerHTML = tracks.map((t, idx) => renderTrackCard(t, 'ytmusic', idx, 'ytmusic')).join('');
+    } catch (err) {
+        grid.innerHTML = `<p class="empty-state">YouTube Music error: ${escapeHtml(err.message)}</p>`;
+    }
+}
+
 // Window bindings for Audio Settings, Candidate Sources, Lyrics, Downloads, Library & DSP
 window.openAudioSettingsModal = openAudioSettingsModal;
 window.closeAudioSettingsModal = closeAudioSettingsModal;
@@ -4847,8 +5077,13 @@ window.playLocalTrack = playLocalTrack;
 window.searchSpotifyTracks = searchSpotifyTracks;
 window.loadSpotifyCurated = loadSpotifyCurated;
 window.searchYTMusicTracks = searchYTMusicTracks;
+window.loadYTMusicCurated = loadYTMusicCurated;
 window.setSearchSourceFilter = setSearchSourceFilter;
 window.onEqualizerSliderChange = onEqualizerSliderChange;
 window.onPreampChange = onPreampChange;
 window.onBalanceChange = onBalanceChange;
 window.resetEqualizerCurve = resetEqualizerCurve;
+window.clearUserQueue = clearUserQueue;
+window.toggleAutoPlay = toggleAutoPlay;
+window.playNextInQueueFromData = playNextInQueueFromData;
+window.renderPlayerQualityBadge = renderPlayerQualityBadge;

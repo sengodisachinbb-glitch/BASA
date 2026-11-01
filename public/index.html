@@ -267,6 +267,14 @@
                                 <input type="text" id="ytmusic-search-input" class="form-input" placeholder="Search YouTube Music songs..." style="flex: 1;" onkeydown="if(event.key==='Enter') searchYTMusicTracks()">
                                 <button class="button button-primary" style="padding: 0 18px;" onclick="searchYTMusicTracks()">Search YTMusic</button>
                             </div>
+                            <div class="ytmusic-quick-shelves" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px;">
+                                <button class="button button-secondary" style="font-size: 11px; padding: 4px 10px;" onclick="loadYTMusicCurated('Trending Music Global')">Trending Global</button>
+                                <button class="button button-secondary" style="font-size: 11px; padding: 4px 10px;" onclick="loadYTMusicCurated('Top Pop Hits')">Top Pop</button>
+                                <button class="button button-secondary" style="font-size: 11px; padding: 4px 10px;" onclick="loadYTMusicCurated('Chill &amp; Lofi Vibes')">Chill &amp; Lofi</button>
+                                <button class="button button-secondary" style="font-size: 11px; padding: 4px 10px;" onclick="loadYTMusicCurated('Hip Hop &amp; Rap')">Hip Hop</button>
+                                <button class="button button-secondary" style="font-size: 11px; padding: 4px 10px;" onclick="loadYTMusicCurated('Tamil Top Hits')">Tamil Top Hits</button>
+                                <button class="button button-secondary" style="font-size: 11px; padding: 4px 10px;" onclick="loadYTMusicCurated('Bollywood Top Hits')">Bollywood</button>
+                            </div>
                         </div>
                         <div id="ytmusic-results-grid" class="track-grid">
                             <p class="empty-state">Search and play YouTube Music songs with intelligent 320k JioSaavn / Lossless audio upgrades.</p>
@@ -712,9 +720,16 @@
 
                 <!-- Tab 1: Up Next -->
                 <div id="queue-view-upnext" class="queue-tab-view active">
-                    <div class="queue-section-header">
-                        <span class="queue-section-label">NEXT IN QUEUE</span>
-                        <button id="queue-clear-btn" class="queue-action-link" onclick="clearQueue()">Clear Queue</button>
+                    <div class="queue-section-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span class="queue-section-label">UP NEXT</span>
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <label class="queue-autoplay-switch" title="AutoPlay: Endlessly stream similar songs when the queue ends">
+                                <input type="checkbox" id="queue-autoplay-toggle" checked onchange="toggleAutoPlay(this.checked)">
+                                <span class="queue-autoplay-slider"></span>
+                                <span class="queue-autoplay-text">AutoPlay</span>
+                            </label>
+                            <button id="queue-clear-btn" class="queue-action-link" onclick="clearQueue()">Clear Queue</button>
+                        </div>
                     </div>
                     <div id="queue-upnext-list" class="queue-track-list">
                         <!-- Populated by JS -->

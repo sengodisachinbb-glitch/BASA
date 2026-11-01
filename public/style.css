@@ -4609,6 +4609,145 @@ input:checked+.slider:before {
   margin-top: 8px;
 }
 
+.queue-subhead-user {
+  color: #60a5fa !important;
+}
+
+.queue-subhead-context {
+  color: #34d399 !important;
+}
+
+.queue-subhead-autoplay {
+  color: #a78bfa !important;
+}
+
+.queue-mini-clear-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.queue-mini-clear-btn:hover {
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.1);
+}
+
+.queue-autoplay-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.queue-autoplay-switch input {
+  display: none;
+}
+
+.queue-autoplay-slider {
+  width: 28px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 20px;
+  position: relative;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: inline-block;
+}
+
+.queue-autoplay-slider::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  left: 2px;
+  top: 2px;
+  background: white;
+  border-radius: 50%;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.queue-autoplay-switch input:checked + .queue-autoplay-slider {
+  background: #3b82f6;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
+}
+
+.queue-autoplay-switch input:checked + .queue-autoplay-slider::after {
+  transform: translateX(12px);
+}
+
+.queue-autoplay-text {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.queue-autoplay-pill {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(167, 139, 250, 0.15);
+  color: #c4b5fd;
+  border: 1px solid rgba(167, 139, 250, 0.3);
+}
+
+.rec-reason-pill {
+  font-size: 9.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.7);
+  display: inline-block;
+  margin-top: 2px;
+  width: fit-content;
+}
+
+#player-quality-badge-container {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+#player-quality-badge-container .quality-badge {
+  margin-top: 0;
+  padding: 1.5px 6px;
+  font-size: 8.5px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  letter-spacing: 0.04em;
+}
+
+#fs-quality-badge-container {
+  display: inline-flex;
+  align-items: center;
+}
+
+#fs-quality-badge-container .quality-badge {
+  margin-top: 0;
+  padding: 3px 8px;
+  font-size: 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+#queue-now-badge .quality-badge {
+  margin-top: 4px;
+  padding: 1.5px 6px;
+  font-size: 9px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
 .queue-rec-badge {
   display: inline-flex;
   align-items: center;
