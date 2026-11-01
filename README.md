@@ -51,13 +51,12 @@ BASA V2 is a dual-engine music platform combining YouTube integration with true 
 
 ### Download Endpoint
 ```http
-GET /api/music/download?source=telegram&fileHash=<hash>&title=Munbe+Vaa&artist=A.R.+Rahman
+GET /api/music/download?source=local&id=<trackId>&title=Munbe+Vaa&artist=A.R.+Rahman
 ```
 
 ### Supported Download Sources
-1. **Telegram Lossless**: Serves cached or on-demand retrieved FLAC/WAV files byte-for-byte without transcoding (`Content-Type: audio/flac`).
-2. **Local Uploads**: Serves original uploaded media files without alteration.
-3. **Internet Archive**: Streams permitted lossless/high-bitrate audio assets preserving original format.
+1. **Local Uploads & Lossless Library**: Serves original uploaded media files (FLAC, ALAC, WAV, MP3) byte-for-byte without alteration.
+2. **Internet Archive**: Streams permitted lossless/high-bitrate audio assets preserving original format.
 
 ### YouTube Download Restriction
 > **Important Note:** YouTube playback is handled strictly via the YouTube IFrame player. YouTube streams are **NOT** routed through the download endpoint. Any download attempt on a YouTube candidate returns HTTP 400:
@@ -82,7 +81,7 @@ Extended `PlaybackManager` with resilient fallback error recovery:
 - **Bounded Attempts**: Single configuration constant `MAX_RECOVERY_ATTEMPTS = 2`.
 - **Per-Track State**: Counter (`this.recoveryAttempts`) and history (`this.attemptedCandidateIds`) reset on every new canonical track.
 - **AUTO Mode Behavior**:
-  - If a playback engine encounters an error (network drop, missing stream, timeout), it switches to the next viable candidate in the canonical track list (e.g., Telegram FLAC → Archive → YouTube).
+  - If a playback engine encounters an error (network drop, missing stream, timeout), it switches to the next viable candidate in the canonical track list (e.g., JioSaavn HD → Local → YouTube).
   - **Timestamp Preservation**: Best-effort seek alignment restores playback near the interrupted position.
   - Zero infinite retry loops; clean error notification upon candidate exhaustion.
 - **EXPLICIT Mode Protection**:
@@ -138,23 +137,14 @@ ALTER TABLE uploaded_tracks ADD COLUMN is_music BOOLEAN DEFAULT 1;
 
 Run the test suites:
 ```bash
-# 1. Functionality Upgrade Test Suite (20 tests)
-node scratch/test_functionality_upgrade.js
-
-# 2. Scenarios A - F Real-World Verification
-node scratch/validate_scenarios_a_to_f.js
-
-# 3. Core Architecture Unit Tests (14 tests)
-node scratch/test_basa_v2.js
-
-# 4. Production Integration Validation (24 tests)
-node scratch/validate_e2e.js
+# Core Architecture & Web Audio Float32 DSP Pipeline Suite (55 tests)
+node tests/test_basa_dsp_pipeline.js
 ```
 
 ### Real-World Scenarios Validated
-- **Scenario A (YouTube)**: Synced lyrics retrieved (68 lines); YouTube download rejected with `DOWNLOAD_UNAVAILABLE`.
-- **Scenario B (Telegram Lossless)**: 9,585,930 bytes FLAC downloaded with 100% byte preservation (`audio/flac`).
+- **Scenario A (YouTube)**: Synced lyrics retrieved; YouTube download rejected with `DOWNLOAD_UNAVAILABLE`.
+- **Scenario B (JioSaavn 320k HD)**: 320 kbps high-fidelity streams with truthful quality classification.
 - **Scenario C (Internet Archive)**: Graceful 404 handling without crashes; streaming downloader verified.
 - **Scenario D (Playback Recovery)**: Bounded fallback across candidates in AUTO mode; explicit mode never silently switches; max attempts (2) strictly enforced.
-- **Scenario E (Local ALAC)**: ALAC inside M4A container classified as `MUSIC`; voice notes classified as `VOICE_NOTE` non-destructively.
-- **Scenario F (Persistence)**: SQLite `lyrics_cache` verified with 68 lines persisting across server restarts.
+- **Scenario E (Local ALAC & FLAC)**: Bit-exact FLAC & ALAC inside M4A container with truthful sample rates and bit-depths.
+- **Scenario F (Persistence)**: SQLite `lyrics_cache` verified with lines persisting across server restarts.

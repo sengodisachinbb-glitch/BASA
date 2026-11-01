@@ -225,7 +225,15 @@ class LyricstifyProvider {
                 // Sanitize any potential sensitive text in server error message
                 const sanitized = text.replace(/sp_dc=[^;\s&]+/gi, 'sp_dc=REDACTED');
                 const err = new Error(`Lyricstify API returned HTTP ${res.status}: ${sanitized || res.statusText}`);
-                err.code = res.status >= 500 ? 'LYRICSTIFY_UNAVAILABLE' : 'LYRICSTIFY_BAD_RESPONSE';
+                if (res.status === 404) {
+                    err.code = 'LYRICS_NOT_FOUND';
+                } else if (res.status === 401 || res.status === 403) {
+                    err.code = 'LYRICSTIFY_UNAUTHORIZED';
+                } else if (res.status >= 500) {
+                    err.code = 'LYRICSTIFY_UNAVAILABLE';
+                } else {
+                    err.code = 'LYRICSTIFY_BAD_RESPONSE';
+                }
                 throw err;
             }
 

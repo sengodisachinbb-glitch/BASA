@@ -22,20 +22,24 @@ app.use(express.urlencoded({ extended: true }));
 // Static files from public directory
 app.use(express.static(path.join(__dirname, 'public')));
 
-// --- Database Setup ---
-const dbDir = path.join(__dirname, 'database');
-if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
+// --- Storage & Database Setup ---
+const isVercel = Boolean(process.env.VERCEL);
+const baseStorageDir = isVercel ? '/tmp' : __dirname;
 
-const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+const dbDir = path.join(baseStorageDir, 'database');
+if (!fs.existsSync(dbDir)) {
+    try { fs.mkdirSync(dbDir, { recursive: true }); } catch (e) {}
+}
 
-const telegramDir = path.join(uploadsDir, 'telegram');
-if (!fs.existsSync(telegramDir)) fs.mkdirSync(telegramDir, { recursive: true });
-const telegramCoversDir = path.join(telegramDir, 'covers');
-if (!fs.existsSync(telegramCoversDir)) fs.mkdirSync(telegramCoversDir, { recursive: true });
+const uploadsDir = path.join(baseStorageDir, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+    try { fs.mkdirSync(uploadsDir, { recursive: true }); } catch (e) {}
+}
 
 const losslessCacheDir = path.join(uploadsDir, 'lossless_cache');
-if (!fs.existsSync(losslessCacheDir)) fs.mkdirSync(losslessCacheDir, { recursive: true });
+if (!fs.existsSync(losslessCacheDir)) {
+    try { fs.mkdirSync(losslessCacheDir, { recursive: true }); } catch (e) {}
+}
 
 const DB_PATH = path.join(dbDir, 'liquid_music.db');
 
@@ -51,8 +55,8 @@ async function startServer() {
         db = new SQL.Database();
     }
 
-    // Run schema
-    const schema = fs.readFileSync(path.join(dbDir, 'schema.sql'), 'utf-8');
+    // Run schema from repository source directory
+    const schema = fs.readFileSync(path.join(__dirname, 'database', 'schema.sql'), 'utf-8');
     db.run(schema);
 
     // Run migrations for existing DBs
@@ -78,64 +82,21 @@ async function startServer() {
             }
         }
 
-        const tgTrackInfo = db.exec("PRAGMA table_info(telegram_tracks)");
-        if (tgTrackInfo.length > 0) {
-            const cols = tgTrackInfo[0].values.map(col => col[1]);
-            if (!cols.includes('source_id')) {
-                db.run("ALTER TABLE telegram_tracks ADD COLUMN source_id TEXT DEFAULT NULL");
-            }
-            if (!cols.includes('telegram_chat_id')) {
-                db.run("ALTER TABLE telegram_tracks ADD COLUMN telegram_chat_id TEXT DEFAULT NULL");
-            }
-            if (!cols.includes('status')) {
-                db.run("ALTER TABLE telegram_tracks ADD COLUMN status TEXT DEFAULT 'READY'");
-            }
-            if (!cols.includes('last_played_at')) {
-                db.run("ALTER TABLE telegram_tracks ADD COLUMN last_played_at DATETIME DEFAULT CURRENT_TIMESTAMP");
-            }
-            console.log("[Migration] Ensured telegram_tracks status and source columns.");
-        }
-
-        // Migrate telegram_sources to support dynamic peer resolution and health tracking
-        const tgSourceInfo = db.exec("PRAGMA table_info(telegram_sources)");
-        if (tgSourceInfo.length > 0) {
-            const cols = tgSourceInfo[0].values.map(col => col[1]);
-            if (!cols.includes('peer_id')) {
-                db.run("ALTER TABLE telegram_sources ADD COLUMN peer_id TEXT DEFAULT NULL");
-            }
-            if (!cols.includes('type')) {
-                db.run("ALTER TABLE telegram_sources ADD COLUMN type TEXT DEFAULT 'telegram'");
-            }
-            if (!cols.includes('last_successful_search')) {
-                db.run("ALTER TABLE telegram_sources ADD COLUMN last_successful_search DATETIME DEFAULT NULL");
-            }
-            if (!cols.includes('last_successful_retrieval')) {
-                db.run("ALTER TABLE telegram_sources ADD COLUMN last_successful_retrieval DATETIME DEFAULT NULL");
-            }
-            if (!cols.includes('last_error')) {
-                db.run("ALTER TABLE telegram_sources ADD COLUMN last_error TEXT DEFAULT NULL");
-            }
-            if (!cols.includes('error_count')) {
-                db.run("ALTER TABLE telegram_sources ADD COLUMN error_count INTEGER DEFAULT 0");
-            }
-            console.log("[Migration] Ensured telegram_sources peer_id, health, and tracking columns.");
-        }
-
-        // Migrate tables to support 'archive', 'telegram', and 'jiosaavn' track_source
+        // Migrate tables to support 'archive' and 'jiosaavn' track_source
         const tablesToMigrate = ['playlist_tracks', 'liked_tracks', 'play_history'];
         for (const table of tablesToMigrate) {
             const tableDef = db.exec(`SELECT sql FROM sqlite_master WHERE type='table' AND name='${table}'`);
             if (tableDef.length > 0 && tableDef[0].values.length > 0) {
                 const sql = tableDef[0].values[0][0];
-                if (sql && (!sql.includes("'archive'") || !sql.includes("'telegram'") || !sql.includes("'jiosaavn'"))) {
-                    console.log(`[Migration] Migrating ${table} to support 'archive', 'telegram', 'jiosaavn' track_source...`);
+                if (sql && (!sql.includes("'archive'") || !sql.includes("'jiosaavn'"))) {
+                    console.log(`[Migration] Migrating ${table} to support 'archive', 'jiosaavn' track_source...`);
                     if (table === 'playlist_tracks') {
                         db.run(`
                             CREATE TABLE playlist_tracks_new (
                                 id TEXT PRIMARY KEY,
                                 playlist_id TEXT NOT NULL,
                                 track_id TEXT NOT NULL,
-                                track_source TEXT NOT NULL CHECK(track_source IN ('audius', 'local', 'youtube', 'archive', 'telegram', 'jiosaavn')),
+                                track_source TEXT NOT NULL CHECK(track_source IN ('audius', 'local', 'youtube', 'archive', 'jiosaavn')),
                                 track_data_json TEXT NOT NULL,
                                 position INTEGER NOT NULL DEFAULT 0,
                                 added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -152,7 +113,7 @@ async function startServer() {
                                 id TEXT PRIMARY KEY,
                                 user_id TEXT NOT NULL,
                                 track_id TEXT NOT NULL,
-                                track_source TEXT NOT NULL CHECK(track_source IN ('audius', 'local', 'youtube', 'archive', 'telegram', 'jiosaavn')),
+                                track_source TEXT NOT NULL CHECK(track_source IN ('audius', 'local', 'youtube', 'archive', 'jiosaavn')),
                                 track_data_json TEXT NOT NULL,
                                 liked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -169,7 +130,7 @@ async function startServer() {
                                 id TEXT PRIMARY KEY,
                                 user_id TEXT NOT NULL,
                                 track_id TEXT NOT NULL,
-                                track_source TEXT NOT NULL CHECK(track_source IN ('audius', 'local', 'youtube', 'archive', 'telegram', 'jiosaavn')),
+                                track_source TEXT NOT NULL CHECK(track_source IN ('audius', 'local', 'youtube', 'archive', 'jiosaavn')),
                                 track_data_json TEXT NOT NULL,
                                 played_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -232,30 +193,18 @@ async function startServer() {
 
     // Save database to disk periodically and on changes
     function saveDb() {
-        const data = db.export();
-        const buffer = Buffer.from(data);
-        fs.writeFileSync(DB_PATH, buffer);
+        try {
+            const data = db.export();
+            const buffer = Buffer.from(data);
+            fs.writeFileSync(DB_PATH, buffer);
+        } catch (err) {
+            console.warn('[Storage] DB save notice (ephemeral serverless environment):', err.message);
+        }
     }
 
     // Make db and saveDb available to routes
     app.locals.db = db;
     app.locals.saveDb = saveDb;
-
-    // Seed default Telegram sources if empty (indexing remains idle, never blocks startup)
-    const telegramSourceManager = require('./services/telegramSourceManager');
-    telegramSourceManager.initSources(db, saveDb);
-
-    // Asynchronously resolve configured Telegram sources in background without blocking server startup
-    const telegramProvider = require('./services/telegramProvider');
-    telegramProvider.getClient().then(client => {
-        if (client) {
-            telegramSourceManager.resolveAllSources(db, saveDb, client).catch(err => {
-                console.warn('[Startup] Dynamic Telegram source resolution notice:', err.message);
-            });
-        }
-    }).catch(err => {
-        console.warn('[Startup] Telegram client check notice:', err.message);
-    });
 
     // --- API Routes ---
     app.use('/api/auth', require('./routes/auth'));
@@ -263,11 +212,6 @@ async function startServer() {
     app.use('/api/playlists', require('./routes/playlists'));
     app.use('/api/library', require('./routes/library'));
     app.use('/api/upload', require('./routes/upload'));
-    app.use('/api/telegram', require('./routes/telegram'));
-
-    // Initialize Telegram Ingestion Worker if enabled
-    const telegramIngestService = require('./services/telegramIngestService');
-    telegramIngestService.startWorker(db, saveDb);
 
     // --- SPA Fallback ---
     app.get('*', (req, res) => {
@@ -300,7 +244,6 @@ async function startServer() {
 
     // Graceful shutdown
     process.on('SIGINT', () => {
-        telegramIngestService.stopWorker();
         saveDb();
         db.close();
         process.exit(0);
@@ -311,3 +254,5 @@ startServer().catch(err => {
     console.error('Failed to start server:', err);
     process.exit(1);
 });
+
+module.exports = app;

@@ -9,7 +9,7 @@
  * 5. Deterministic fallback hierarchy (Soundtrack -> Album -> Related Artist -> Mood -> Language)
  *    ZERO random calls, ZERO arbitrary shuffling
  * 6. Returns canonicalTrackId and human-readable recommendation reasons
- * 7. Candidate pool generation from local library, indexed Telegram catalog, and cached tracks
+ * 7. Candidate pool generation from local library and cached tracks
  */
 
 const songProfile = require('./songProfile');
@@ -336,40 +336,10 @@ class RecommendationEngine {
             pool.push(cand);
         }
 
-        // 1. Query Telegram catalog tracks if db available
+        // 1. Query local uploads that actually exist on disk
         if (db) {
             try {
                 const fs = require('fs');
-                // Fetch recent/popular indexed songs that actually exist on disk
-                const stmt = db.prepare(`
-                    SELECT id, title, artist, album, format, quality, duration, file_path 
-                    FROM telegram_tracks 
-                    LIMIT 80
-                `);
-                while (stmt.step()) {
-                    const row = stmt.getAsObject();
-                    if (!row.file_path || !fs.existsSync(row.file_path)) continue;
-                    addCandidate({
-                        id: `tg_${row.id}`,
-                        canonicalTrackId: `canon_${row.id}`,
-                        title: row.title,
-                        artist: row.artist,
-                        album: row.album,
-                        duration: row.duration,
-                        format: row.format,
-                        quality: row.quality || 'LOSSLESS',
-                        isLossless: true,
-                        source: 'telegram',
-                        audioUrl: `/api/telegram/stream/${row.id}`,
-                        streamUrl: `/api/telegram/stream/${row.id}`,
-                        preview: `/api/telegram/stream/${row.id}`,
-                        playable: true,
-                        isCached: true
-                    });
-                }
-                stmt.free();
-
-                // Also query local uploads that actually exist on disk
                 const stmt2 = db.prepare(`
                     SELECT id, title, artist, album, duration, file_path 
                     FROM uploaded_tracks 

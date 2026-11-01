@@ -545,6 +545,58 @@ class DspEngine {
     setBalance(balance) { if (this.stereo) this.stereo.setBalance(balance); this.saveSettings(); }
     setCrossfeed(mode) { if (this.crossfeed) this.crossfeed.setMode(mode); this.saveSettings(); }
 
+    setBandGain(index, gainDb) {
+        if (this.equalizer) {
+            this.equalizer.setBandGain(index, gainDb);
+            this.activePreset = 'CUSTOM';
+            this.saveSettings();
+        }
+    }
+
+    setBandQ(index, qVal) {
+        if (this.equalizer && typeof this.equalizer.setBandQ === 'function') {
+            this.equalizer.setBandQ(index, qVal);
+            this.saveSettings();
+        }
+    }
+
+    setPreamp(db) {
+        if (this.equalizer && typeof this.equalizer.setPreamp === 'function') {
+            this.equalizer.setPreamp(db);
+            this.saveSettings();
+        }
+    }
+
+    getFrequencyResponse(frequencies) {
+        if (this.equalizer && typeof this.equalizer.getFrequencyResponse === 'function') {
+            return this.equalizer.getFrequencyResponse(frequencies);
+        }
+        return new Float32Array(frequencies ? frequencies.length : 0).fill(1.0);
+    }
+
+    setTonePad(x, y, focus = false) {
+        const tilt = Math.max(-1, Math.min(1, Number(x) || 0));
+        const mid = Math.max(-1, Math.min(1, Number(y) || 0));
+        const depth = focus ? 1.4 : 1.0;
+        const newGains = [
+            -tilt * 4.5 * depth,
+            -tilt * 3.5 * depth,
+            -tilt * 2.0 * depth,
+            (-tilt * 0.8 - mid * 1.5) * depth,
+            (mid * 2.5) * depth,
+            (mid * 3.0) * depth,
+            (tilt * 0.8 + mid * 1.5) * depth,
+            tilt * 2.0 * depth,
+            tilt * 3.5 * depth,
+            tilt * 4.5 * depth
+        ];
+        if (this.equalizer) {
+            this.equalizer.setGains(newGains);
+            this.activePreset = 'DYNAMIC_TONE';
+            this.saveSettings();
+        }
+    }
+
     /**
      * Sets ReplayGain linear gain multiplier on the dedicated replayGainNode
      * Modes: 'OFF' | 'TRACK' | 'ALBUM'

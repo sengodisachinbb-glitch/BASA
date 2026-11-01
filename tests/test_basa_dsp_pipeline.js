@@ -127,7 +127,7 @@ async function runAllTests() {
     runTest('JioSaavn candidate scores above lossy YouTube but below Lossless FLAC', () => {
         const yt = { source: 'youtube', quality: 'STANDARD', bitrate: 128000 };
         const jio = { source: 'jiosaavn', quality: 'HIGH', bitrate: 320000 };
-        const flac = { source: 'telegram', quality: 'LOSSLESS', bitDepth: 16, sampleRate: 44100 };
+        const flac = { source: 'local', quality: 'LOSSLESS', bitDepth: 16, sampleRate: 44100 };
 
         const ytScore = qr.computeCandidateScore(yt, {}).totalScore;
         const jioScore = qr.computeCandidateScore(jio, {}).totalScore;

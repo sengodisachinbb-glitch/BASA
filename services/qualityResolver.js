@@ -101,12 +101,6 @@ class QualityResolver {
             return 350;
         }
 
-        // Uncached Telegram track -> requires on-demand network retrieval (~3500-6000ms)
-        if (candidate.source === 'telegram' && candidate.isCached !== true) {
-            const fileSize = Number(candidate.fileSize || candidate.file_size) || 35000000;
-            return Math.min(Math.max(Math.round(fileSize / 10000), 3000), 8000);
-        }
-
         return 1000;
     }
 
@@ -141,8 +135,8 @@ class QualityResolver {
         score -= latencyPenalty;
 
         // Source reliability & preference bonuses
-        if (candidate.source === 'telegram' && isCached) {
-            score += 65; // local verified studio master
+        if (candidate.source === 'local' && isCached) {
+            score += 65; // local verified master
         } else if (candidate.source === 'jiosaavn') {
             score += 35; // high quality direct AAC 320 stream
         } else if (candidate.source === 'youtube' && !isCached) {

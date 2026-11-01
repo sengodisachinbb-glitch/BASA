@@ -98,6 +98,8 @@ function classifyMediaType(metadata, filename = '') {
 
 
 const router = express.Router();
+const isVercel = Boolean(process.env.VERCEL);
+const uploadsBaseDir = isVercel ? path.join('/tmp', 'uploads') : path.join(__dirname, '..', 'uploads');
 
 function getOne(db, sql, params = []) {
     const stmt = db.prepare(sql); stmt.bind(params);
@@ -115,9 +117,10 @@ function runSql(db, sql, params = []) { db.run(sql, params); }
 // Configure multer
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        const uploadDir = path.join(__dirname, '..', 'uploads');
-        if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-        cb(null, uploadDir);
+        if (!fs.existsSync(uploadsBaseDir)) {
+            try { fs.mkdirSync(uploadsBaseDir, { recursive: true }); } catch (e) {}
+        }
+        cb(null, uploadsBaseDir);
     },
     filename: (req, file, cb) => {
         cb(null, `${uuidv4()}${path.extname(file.originalname)}`);
@@ -158,10 +161,10 @@ router.post('/', upload.single('audio'), async (req, res) => {
     let classification = 'UNKNOWN';
     let isMusic = 1;
 
-    const filePath = path.join(__dirname, '..', 'uploads', req.file.filename);
-    const coversDir = path.join(__dirname, '..', 'uploads', 'covers');
+    const filePath = path.join(uploadsBaseDir, req.file.filename);
+    const coversDir = path.join(uploadsBaseDir, 'covers');
     if (!fs.existsSync(coversDir)) {
-        fs.mkdirSync(coversDir, { recursive: true });
+        try { fs.mkdirSync(coversDir, { recursive: true }); } catch (e) {}
     }
 
     try {
@@ -238,7 +241,7 @@ router.get('/stream/:id', (req, res) => {
     const track = getOne(db, 'SELECT * FROM uploaded_tracks WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
     if (!track) return res.status(404).json({ error: 'Track not found' });
 
-    const filePath = path.join(__dirname, '..', 'uploads', track.file_path);
+    const filePath = path.join(uploadsBaseDir, track.file_path);
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
 
     const stat = fs.statSync(filePath);
@@ -280,7 +283,7 @@ router.delete('/:id', (req, res) => {
     const track = getOne(db, 'SELECT * FROM uploaded_tracks WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
     if (!track) return res.status(404).json({ error: 'Track not found' });
 
-    const filePath = path.join(__dirname, '..', 'uploads', track.file_path);
+    const filePath = path.join(uploadsBaseDir, track.file_path);
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
     runSql(db, 'DELETE FROM uploaded_tracks WHERE id = ?', [req.params.id]);
@@ -307,7 +310,7 @@ router.get('/cover/:id', (req, res) => {
         return res.status(404).json({ error: 'Cover not found' });
     }
 
-    const coverPath = path.join(__dirname, '..', 'uploads', 'covers', path.basename(track.cover_url));
+    const coverPath = path.join(uploadsBaseDir, 'covers', path.basename(track.cover_url));
     if (!fs.existsSync(coverPath)) {
         return res.status(404).json({ error: 'Cover file not found' });
     }

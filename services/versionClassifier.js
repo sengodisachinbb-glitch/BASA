@@ -252,8 +252,8 @@ class VersionClassifier {
         const artist = (candidate.artist || '').toLowerCase();
         const source = (candidate.source || '').toLowerCase();
 
-        // Signal 1: Telegram lossless catalog or local vault is 100% verified first-party catalog
-        if (source === 'telegram' || source === 'local') {
+        // Signal 1: Local vault is 100% verified first-party catalog
+        if (source === 'local') {
             return 1.0;
         }
 

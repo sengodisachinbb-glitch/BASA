@@ -5,7 +5,7 @@
  * - Accept canonical track identity or search query
  * - Concurrently query all configured music providers:
  *     1. YouTubeProvider
- *     2. TelegramProvider
+ *     2. JioSaavnProvider
  *     3. LocalProvider (user-uploaded library)
  * - Normalize results to standard candidate representation
  * - Determine playable availability and startup latency
@@ -16,7 +16,6 @@
 const path = require('path');
 const fs = require('fs');
 const youtubeProvider = require('./youtubeProvider');
-const telegramProvider = require('./telegramProvider');
 const jioSaavnProvider = require('./jioSaavnProvider');
 const internetArchiveProvider = require('./internetArchiveProvider');
 const streamContainer = require('./streamContainer');
@@ -45,7 +44,6 @@ class SourceResolver {
         this.playbackProviders = [
             youtubeProvider,
             jioSaavnProvider,
-            telegramProvider,
             internetArchiveProvider
         ];
         this.providers = this.playbackProviders; // alias for backwards compatibility
@@ -123,18 +121,7 @@ class SourceResolver {
                 return [];
             }),
 
-            // 3. Telegram Provider (local-first fast search)
-            Promise.resolve().then(() => {
-                if (db) {
-                    return telegramProvider.searchTracks(query, { db, limit: Math.min(limit, 15) });
-                }
-                return [];
-            }).catch(err => {
-                console.warn('[SourceResolver] Telegram provider search error:', err.message);
-                return [];
-            }),
-
-            // 4. Local User Uploads Provider
+            // 3. Local User Uploads Provider
             Promise.resolve().then(() => {
                 if (db) {
                     return this.resolveLocalTracks(query, db);
@@ -256,60 +243,7 @@ class SourceResolver {
             headers: {}
         };
 
-        // 1. Telegram source
-        if (source === 'telegram' || source === 'lossless') {
-            const streamUrl = `/api/telegram/stream/${candidateId}`;
-            streamData.url = streamUrl;
-            streamData.source = 'telegram';
-
-            if (db) {
-                const row = getOne(db, `
-                    SELECT * FROM telegram_tracks 
-                    WHERE id = ? OR file_hash = ? OR telegram_message_id = (SELECT message_id FROM telegram_library_index WHERE id = ?)
-                `, [candidateId, candidateId, candidateId]);
-
-                if (row && row.status === 'READY' && row.file_path) {
-                    const safeName = path.basename(row.file_path);
-                    const diskPath = path.join(__dirname, '..', 'uploads', 'telegram', safeName);
-
-                    if (fs.existsSync(diskPath)) {
-                        const inspection = streamContainer.inspectLocalFile(diskPath);
-                        streamData.format = inspection.format || row.format || 'FLAC';
-                        streamData.codec = inspection.codec || row.codec || 'FLAC';
-                        streamData.sampleRate = inspection.sampleRate || row.sample_rate;
-                        streamData.bitDepth = inspection.bitDepth || row.bit_depth;
-                        streamData.duration = inspection.duration || row.duration;
-                        streamData.lossless = inspection.lossless;
-                        streamData.losslessVerification = inspection.losslessVerification;
-                        streamData.qualityTier = inspection.qualityTier;
-                        streamData.transport = 'PROGRESSIVE';
-                        streamData.mimeType = streamContainer.resolveMimeType(streamData.format, streamData.codec, 'PROGRESSIVE');
-                        return streamContainer.normalizeStreamModel(streamData);
-                    }
-                }
-
-                // If indexed but not cached yet
-                const indexRow = getOne(db, `SELECT * FROM telegram_library_index WHERE id = ?`, [candidateId]);
-                if (indexRow) {
-                    const codecInfo = streamContainer.classifyCodec(indexRow.format || indexRow.codec);
-                    streamData.format = (indexRow.format || 'FLAC').toUpperCase();
-                    streamData.codec = codecInfo.normalizedCodec;
-                    streamData.lossless = codecInfo.isLossless;
-                    streamData.losslessVerification = 'SOURCE_DECLARED';
-                    streamData.transport = 'PROGRESSIVE';
-                    streamData.mimeType = streamContainer.resolveMimeType(streamData.format, streamData.codec, 'PROGRESSIVE');
-                    return streamContainer.normalizeStreamModel(streamData);
-                }
-            }
-
-            streamData.transport = 'PROGRESSIVE';
-            streamData.mimeType = 'audio/flac';
-            streamData.lossless = true;
-            streamData.losslessVerification = 'SOURCE_DECLARED';
-            return streamContainer.normalizeStreamModel(streamData);
-        }
-
-        // 2. Local uploaded source
+        // 1. Local uploaded source
         if (source === 'local') {
             const streamUrl = `/api/upload/stream/${candidateId}`;
             streamData.url = streamUrl;

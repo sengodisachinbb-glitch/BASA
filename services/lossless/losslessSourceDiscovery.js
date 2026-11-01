@@ -139,8 +139,8 @@ class LosslessSourceDiscovery {
         //       - Provenance verified: +200
         //       - Playable lossless verified (container + stream): +100
         //       - Codec verified: +50
-        //    3. Configured Provider Priority: local (30) > telegram (20) > archive (10) > others (5)
-        //    4. Transport Preference (Availability): LOCAL (15) > CACHED (10) > TELEGRAM (5) > REMOTE_HTTP (2) > PROVIDER_STREAM (1)
+        //    3. Configured Provider Priority: local (30) > archive (10) > others (5)
+        //    4. Transport Preference (Availability): LOCAL (15) > CACHED (10) > REMOTE_HTTP (2) > PROVIDER_STREAM (1)
         //    5. Match confidence
         verifiedCandidates.sort((a, b) => {
             const computeScore = (item) => {
@@ -162,7 +162,6 @@ class LosslessSourceDiscovery {
 
                 // 3. Provider Priority
                 if (item.provider === 'local') score += 30;
-                else if (item.provider === 'telegram') score += 20;
                 else if (item.provider === 'internet_archive') score += 10;
                 else score += 5;
 
@@ -170,7 +169,6 @@ class LosslessSourceDiscovery {
                 const transport = item.transport || item.playbackTransport || item.sourceType;
                 if (transport === 'LOCAL' || item.sourceType === 'LOCAL_FILE') score += 15;
                 else if (transport === 'CACHED' || item.sourceType === 'CACHED_FILE') score += 10;
-                else if (transport === 'TELEGRAM' || item.sourceType === 'TELEGRAM_FILE') score += 5;
                 else if (transport === 'REMOTE_HTTP') score += 2;
                 else score += 1;
 

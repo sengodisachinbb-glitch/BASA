@@ -82,7 +82,7 @@
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
                         Sync Devices
                     </a>
-                    <a href="#lossless" class="sidebar-link" data-view="telegram" id="nav-telegram-btn">
+                    <a href="#lossless" class="sidebar-link" data-view="lossless" id="nav-lossless-btn">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
                         Lossless Studio
                     </a>
@@ -167,16 +167,110 @@
                         <button id="search-request-btn" class="button button-secondary" style="font-size:12px; padding:6px 14px;" onclick="openSongRequestModal()">✨ Request Studio Master</button>
                     </div>
                     <div class="search-policy-banner">💎 Hi-Res Lossless &amp; Studio Audio enabled · Ranked by highest verified audio quality.</div>
+                    
+                    <!-- Search Provider Filter Pills -->
+                    <div class="search-provider-pills" style="display: flex; gap: 8px; margin: 10px 0 16px 0; overflow-x: auto; padding-bottom: 4px;">
+                        <button class="filter-pill active" id="search-filter-all" onclick="setSearchSourceFilter('ALL')">All Sources</button>
+                        <button class="filter-pill" id="search-filter-jiosaavn" onclick="setSearchSourceFilter('JIOSAAVN')">JioSaavn 320k HD</button>
+                        <button class="filter-pill" id="search-filter-lossless" onclick="setSearchSourceFilter('LOSSLESS')">Lossless FLAC</button>
+                        <button class="filter-pill" id="search-filter-spotify" onclick="setSearchSourceFilter('SPOTIFY')">Spotify</button>
+                        <button class="filter-pill" id="search-filter-ytmusic" onclick="setSearchSourceFilter('YTMUSIC')">YouTube Music</button>
+                        <button class="filter-pill" id="search-filter-local" onclick="setSearchSourceFilter('LOCAL')">Local Files</button>
+                    </div>
+
                     <div id="search-results" class="track-grid">
                         <p class="empty-state">Type something to search for music...</p>
                     </div>
                 </div>
 
-                <!-- LIBRARY VIEW -->
+                <!-- LIBRARY VIEW (Full Multi-Source Hub) -->
                 <div id="view-library" class="view">
-                    <h2 class="section-title">❤️ Liked Songs</h2>
-                    <div id="liked-list" class="track-list">
-                        <p class="empty-state">Sign in to see your liked songs</p>
+                    <div class="library-header-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+                        <h2 class="section-title" style="margin-bottom: 0;">📚 Your Music Library</h2>
+                        <div class="library-tab-buttons" style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            <button id="lib-tab-liked" class="button button-primary active" style="padding: 6px 14px; font-size: 13px;" onclick="switchLibraryTab('liked')">❤️ Liked</button>
+                            <button id="lib-tab-playlists" class="button button-secondary" style="padding: 6px 14px; font-size: 13px;" onclick="switchLibraryTab('playlists')">🎵 Playlists</button>
+                            <button id="lib-tab-history" class="button button-secondary" style="padding: 6px 14px; font-size: 13px;" onclick="switchLibraryTab('history')">🕒 History</button>
+                            <button id="lib-tab-local" class="button button-secondary" style="padding: 6px 14px; font-size: 13px;" onclick="switchLibraryTab('local')">📁 Local (FLAC/ALAC)</button>
+                            <button id="lib-tab-spotify" class="button button-secondary" style="padding: 6px 14px; font-size: 13px;" onclick="switchLibraryTab('spotify')">🟢 Spotify</button>
+                            <button id="lib-tab-ytmusic" class="button button-secondary" style="padding: 6px 14px; font-size: 13px;" onclick="switchLibraryTab('ytmusic')">▶ YouTube Music</button>
+                        </div>
+                    </div>
+
+                    <!-- TAB 1: Liked Songs -->
+                    <div id="lib-view-liked" class="library-tab-pane">
+                        <div id="liked-list" class="track-list">
+                            <p class="empty-state">Sign in to see your liked songs</p>
+                        </div>
+                    </div>
+
+                    <!-- TAB 2: Playlists -->
+                    <div id="lib-view-playlists" class="library-tab-pane hidden">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <h3 style="font-size: 16px; font-weight: 600;">Custom Playlists</h3>
+                            <button class="button button-primary" style="font-size: 12px; padding: 6px 14px;" onclick="showPlaylistModal()">+ Create Playlist</button>
+                        </div>
+                        <div id="library-playlists-grid" class="track-grid"></div>
+                    </div>
+
+                    <!-- TAB 3: History -->
+                    <div id="lib-view-history" class="library-tab-pane hidden">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <h3 style="font-size: 16px; font-weight: 600;">Recently Played</h3>
+                            <button class="button button-secondary" style="font-size: 12px; padding: 4px 12px;" onclick="loadHistory()">Refresh</button>
+                        </div>
+                        <div id="history-list" class="track-list"></div>
+                    </div>
+
+                    <!-- TAB 4: Local Offline Music (IndexedDB FLAC / WAV / ALAC) -->
+                    <div id="lib-view-local" class="library-tab-pane hidden">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+                            <div>
+                                <h3 style="font-size: 16px; font-weight: 600;">Local Music Library (IndexedDB Storage)</h3>
+                                <p style="font-size: 12px; color: var(--text-secondary);">Direct browser-side playback for FLAC, ALAC, WAV, MP3 with full Web Audio DSP</p>
+                            </div>
+                            <div style="display: flex; gap: 8px;">
+                                <label for="local-file-picker" class="button button-primary" style="font-size: 12px; padding: 6px 14px; cursor: pointer;">+ Import Audio Files</label>
+                                <input type="file" id="local-file-picker" accept=".flac,.wav,.m4a,.alac,.mp3,.aac,.ogg,.opus" multiple hidden onchange="handleLocalFilesSelected(event)">
+                                <button class="button button-secondary" style="font-size: 12px; padding: 6px 14px;" onclick="clearLocalLibrary()">Clear Local</button>
+                            </div>
+                        </div>
+                        <div id="local-tracks-list" class="track-list">
+                            <p class="empty-state">No local tracks imported yet. Click "+ Import Audio Files" or drag & drop FLAC/WAV/ALAC files.</p>
+                        </div>
+                    </div>
+
+                    <!-- TAB 5: Spotify Discovery -->
+                    <div id="lib-view-spotify" class="library-tab-pane hidden">
+                        <div style="margin-bottom: 16px;">
+                            <div style="display: flex; gap: 10px; margin-bottom: 14px;">
+                                <input type="text" id="spotify-search-input" class="form-input" placeholder="Search Spotify tracks or albums..." style="flex: 1;" onkeydown="if(event.key==='Enter') searchSpotifyTracks()">
+                                <button class="button button-primary" style="padding: 0 18px;" onclick="searchSpotifyTracks()">Search Spotify</button>
+                            </div>
+                            <div class="spotify-quick-shelves" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px;">
+                                <button class="button button-secondary" style="font-size: 11px; padding: 4px 10px;" onclick="loadSpotifyCurated('Today\'s Top Hits')">Today's Top Hits</button>
+                                <button class="button button-secondary" style="font-size: 11px; padding: 4px 10px;" onclick="loadSpotifyCurated('A.R. Rahman')">A.R. Rahman</button>
+                                <button class="button button-secondary" style="font-size: 11px; padding: 4px 10px;" onclick="loadSpotifyCurated('Anirudh')">Anirudh</button>
+                                <button class="button button-secondary" style="font-size: 11px; padding: 4px 10px;" onclick="loadSpotifyCurated('Harris Jayaraj')">Harris Jayaraj</button>
+                                <button class="button button-secondary" style="font-size: 11px; padding: 4px 10px;" onclick="loadSpotifyCurated('Yuvan Shankar Raja')">Yuvan Shankar Raja</button>
+                            </div>
+                        </div>
+                        <div id="spotify-results-grid" class="track-grid">
+                            <p class="empty-state">Explore Spotify catalog tracks matched instantly to high-fidelity audio streams.</p>
+                        </div>
+                    </div>
+
+                    <!-- TAB 6: YouTube Music -->
+                    <div id="lib-view-ytmusic" class="library-tab-pane hidden">
+                        <div style="margin-bottom: 16px;">
+                            <div style="display: flex; gap: 10px; margin-bottom: 14px;">
+                                <input type="text" id="ytmusic-search-input" class="form-input" placeholder="Search YouTube Music songs..." style="flex: 1;" onkeydown="if(event.key==='Enter') searchYTMusicTracks()">
+                                <button class="button button-primary" style="padding: 0 18px;" onclick="searchYTMusicTracks()">Search YTMusic</button>
+                            </div>
+                        </div>
+                        <div id="ytmusic-results-grid" class="track-grid">
+                            <p class="empty-state">Search and play YouTube Music songs with intelligent 320k JioSaavn / Lossless audio upgrades.</p>
+                        </div>
                     </div>
                 </div>
 
@@ -251,77 +345,20 @@
                 </div>
 
                 <!-- LOSSLESS STUDIO VIEW -->
-                <div id="view-telegram" class="view">
+                <div id="view-lossless" class="view">
                     <div class="vault-header">
                         <div>
                             <h2 class="section-title" style="margin-bottom:4px;">💎 Lossless Studio &amp; Hi-Res Audio</h2>
-                            <p class="vault-subtitle">Native Lossless &amp; Hi-Res Audio (24-bit / 96 kHz FLAC) · Intelligent stream caching &amp; automated ingestion</p>
+                            <p class="vault-subtitle">Native Lossless &amp; Hi-Res Audio (24-bit / 96 kHz FLAC) · Bit-exact IndexedDB &amp; Local Storage</p>
                             <div class="vault-policy-badge">Studio Master quality enabled · Auto-ranked by verified sample rate &amp; bit-depth.</div>
                         </div>
                         <div class="vault-header-actions">
-                            <button id="btn-add-source" class="button button-primary" onclick="openAddSourceModal()">+ Add Source</button>
-                            <button id="btn-request-song-open" class="button button-secondary" onclick="openSongRequestModal()">✨ Request Master</button>
+                            <button class="button button-primary" onclick="loadLosslessLibrary()">↻ Refresh Library</button>
                         </div>
                     </div>
 
-                    <!-- Metrics Grid -->
-                    <div class="vault-metrics-grid">
-                        <div class="vault-metric-card glass-subtle">
-                            <div class="metric-title">LOSSLESS SOURCES</div>
-                            <div class="metric-value" id="vault-stat-sources">0</div>
-                            <div class="metric-desc">Connected feeds</div>
-                        </div>
-                        <div class="vault-metric-card glass-subtle">
-                            <div class="metric-title">INDEXED TRACKS</div>
-                            <div class="metric-value" id="vault-stat-indexed">0</div>
-                            <div class="metric-desc">Available for instant streaming</div>
-                        </div>
-                        <div class="vault-metric-card glass-subtle">
-                            <div class="metric-title">CACHED LOCALLY</div>
-                            <div class="metric-value" id="vault-stat-cached">0</div>
-                            <div class="metric-desc">Verified lossless streams</div>
-                        </div>
-                        <div class="vault-metric-card glass-subtle">
-                            <div class="metric-title">STORAGE USAGE</div>
-                            <div class="metric-value" id="vault-stat-storage">0.00 GB</div>
-                            <div class="metric-desc" id="vault-stat-limit">Max 25 GB · <a href="javascript:void(0)" onclick="cleanVaultCache()" style="color:var(--accent);text-decoration:underline;">Clean Cache</a></div>
-                        </div>
-                    </div>
-
-                    <!-- Vault Tabs: Sources | Request Queue | Verified Lossless Library (Section 18) -->
-                    <div class="vault-tabs">
-                        <button id="vault-tab-sources" class="vault-tab-btn active" onclick="switchVaultTab('sources')">Connected Audio Sources</button>
-                        <button id="vault-tab-requests" class="vault-tab-btn" onclick="switchVaultTab('requests')">Master Request Queue <span id="vault-request-count" class="queue-badge">0</span></button>
-                        <button id="vault-tab-library" class="vault-tab-btn" onclick="switchVaultTab('library')">Verified Lossless Library <span id="vault-library-count" class="queue-badge">0</span></button>
-                    </div>
-
-                    <!-- Tab 1: Sources -->
-                    <div id="vault-view-sources" class="vault-tab-view active">
-                        <div class="vault-section-header">
-                            <h3>Connected Audio Feeds</h3>
-                            <button class="button button-secondary" style="font-size:12px; padding:4px 10px;" onclick="loadVaultSources()">↻ Refresh</button>
-                        </div>
-                        <div id="vault-sources-list" class="vault-sources-list">
-                            <div class="loader">Loading sources...</div>
-                        </div>
-                    </div>
-
-                    <!-- Tab 2: Request Queue -->
-                    <div id="vault-view-requests" class="vault-tab-view hidden">
-                        <div class="vault-section-header">
-                            <h3>Song Requests (Merged &amp; Evaluated in Priority Order)</h3>
-                            <div style="display:flex;gap:8px;">
-                                <button class="button button-primary" style="font-size:12px; padding:4px 12px;" onclick="processVaultQueue()">⚡ Process Queue</button>
-                                <button class="button button-secondary" style="font-size:12px; padding:4px 10px;" onclick="loadVaultRequests()">↻ Refresh</button>
-                            </div>
-                        </div>
-                        <div id="vault-requests-container" class="vault-requests-container">
-                            <div class="loader">Loading requests...</div>
-                        </div>
-                    </div>
-
-                    <!-- Tab 3: Verified Lossless Library (Section 18) -->
-                    <div id="vault-view-library" class="vault-tab-view hidden">
+                    <!-- Verified Lossless Library -->
+                    <div id="vault-view-library" class="vault-tab-view active">
                         <div class="vault-section-header">
                             <div>
                                 <h3>Verified Lossless Library</h3>
@@ -334,14 +371,13 @@
                                 <button class="button button-secondary" style="font-size:12px; padding:4px 10px;" onclick="loadLosslessLibrary()">↻ Refresh</button>
                             </div>
                         </div>
-                        <!-- Filter Pills (Section 18) -->
+                        <!-- Filter Pills -->
                         <div class="lang-pills-wrapper" style="margin-bottom: 14px;">
                             <button class="lang-pill active" data-filter="all" onclick="setLosslessLibraryFilter('all', this)">All</button>
                             <button class="lang-pill" data-filter="hires" onclick="setLosslessLibraryFilter('hires', this)">Hi-Res</button>
                             <button class="lang-pill" data-filter="lossless" onclick="setLosslessLibraryFilter('lossless', this)">Lossless</button>
                             <button class="lang-pill" data-filter="cached" onclick="setLosslessLibraryFilter('cached', this)">Recently Cached</button>
                             <button class="lang-pill" data-filter="local" onclick="setLosslessLibraryFilter('local', this)">Local FLAC</button>
-                            <button class="lang-pill" data-filter="telegram" onclick="setLosslessLibraryFilter('telegram', this)">Telegram FLAC</button>
                         </div>
                         <div id="vault-library-list" class="track-list">
                             <div class="loader">Loading verified lossless tracks...</div>
@@ -514,6 +550,7 @@
                     <div class="fs-cover-wrapper" id="fs-cover-wrapper">
                         <img id="fs-cover-image" src="" alt="Album Cover" crossorigin="anonymous">
                     </div>
+                    <canvas id="fs-visualizer-canvas" class="fs-visualizer-canvas" width="600" height="64" title="Live DSP Spectrum / Waveform Visualizer"></canvas>
 
                     <div class="fs-info-area">
                         <h2 id="fs-title" class="fs-title">Not Playing</h2>
@@ -829,16 +866,108 @@
                         <select id="setting-dsp-preset" class="form-input" onchange="updateDspSetting('preset', this.value)">
                             <option value="FLAT">Flat (Reference Curve)</option>
                             <option value="BASA_HIFI">BASA HiFi (Conservative Audiophile Lift)</option>
+                            <option value="BASS_BOOST">Bass Boost (Low-End Punch)</option>
+                            <option value="BASS_CUT">Bass Cut (Clean Low-End)</option>
                             <option value="VOCAL">Vocal (Midrange & Clarity)</option>
-                            <option value="BASS">Bass (Low-End Punch)</option>
-                            <option value="TREBLE">Treble (Acoustic Shimmer)</option>
+                            <option value="TREBLE_BOOST">Treble Boost (Acoustic Shimmer)</option>
+                            <option value="TREBLE_CUT">Treble Cut (Warm Roll-off)</option>
+                            <option value="LOUDNESS">Loudness (Equal Contour)</option>
                             <option value="ROCK">Rock (Dynamic V-Shape)</option>
                             <option value="POP">Pop (Modern Articulate Radio)</option>
-                            <option value="CLASSICAL">Classical (Symphonic Staging)</option>
-                            <option value="CINEMATIC">Cinematic (Immersive Scale)</option>
                             <option value="ELECTRONIC">Electronic (Fast Transient Punch)</option>
+                            <option value="HIP_HOP">Hip Hop (Deep Sub-Bass Focus)</option>
+                            <option value="JAZZ">Jazz (Warm Club Acoustics)</option>
+                            <option value="CLASSICAL">Classical (Symphonic Staging)</option>
+                            <option value="ACOUSTIC">Acoustic (Natural Wood & String)</option>
+                            <option value="SPOKEN_WORD">Spoken Word (Podcast & Speech)</option>
+                            <option value="SMALL_SPEAKERS">Small Speakers (Controlled Lows)</option>
                             <option value="WARM">Warm (Analog Vintage Tube)</option>
+                            <option value="CINEMATIC">Cinematic (Immersive Scale)</option>
+                            <option value="CUSTOM">Custom User Tuning</option>
                         </select>
+                    </div>
+
+                    <!-- 10-BAND GRAPHICAL PARAMETRIC EQUALIZER -->
+                    <div class="eq-container">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                            <label style="font-weight: 700; font-size: 14px; letter-spacing:0.02em;">🎛 10-Band Parametric Equalizer</label>
+                            <button type="button" class="button button-secondary" style="font-size:11px; padding:4px 10px;" onclick="resetEqualizerCurve()">Reset (Flat)</button>
+                        </div>
+
+                        <!-- Real-time EQ Frequency Response Curve -->
+                        <canvas id="eq-curve-canvas" width="480" height="120" style="width:100%; height:120px; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.08); border-radius:8px; margin-bottom:12px;"></canvas>
+
+                        <!-- 10-Band Sliders Grid -->
+                        <div class="eq-sliders-grid">
+                            <div class="eq-band-col">
+                                <span class="eq-band-val" id="eq-val-0">0dB</span>
+                                <input type="range" class="eq-slider-vertical" id="eq-band-0" min="-12" max="12" step="0.5" value="0" orient="vertical" oninput="onEqualizerSliderChange(0, this.value)">
+                                <span class="eq-band-label">32</span>
+                            </div>
+                            <div class="eq-band-col">
+                                <span class="eq-band-val" id="eq-val-1">0dB</span>
+                                <input type="range" class="eq-slider-vertical" id="eq-band-1" min="-12" max="12" step="0.5" value="0" orient="vertical" oninput="onEqualizerSliderChange(1, this.value)">
+                                <span class="eq-band-label">64</span>
+                            </div>
+                            <div class="eq-band-col">
+                                <span class="eq-band-val" id="eq-val-2">0dB</span>
+                                <input type="range" class="eq-slider-vertical" id="eq-band-2" min="-12" max="12" step="0.5" value="0" orient="vertical" oninput="onEqualizerSliderChange(2, this.value)">
+                                <span class="eq-band-label">125</span>
+                            </div>
+                            <div class="eq-band-col">
+                                <span class="eq-band-val" id="eq-val-3">0dB</span>
+                                <input type="range" class="eq-slider-vertical" id="eq-band-3" min="-12" max="12" step="0.5" value="0" orient="vertical" oninput="onEqualizerSliderChange(3, this.value)">
+                                <span class="eq-band-label">250</span>
+                            </div>
+                            <div class="eq-band-col">
+                                <span class="eq-band-val" id="eq-val-4">0dB</span>
+                                <input type="range" class="eq-slider-vertical" id="eq-band-4" min="-12" max="12" step="0.5" value="0" orient="vertical" oninput="onEqualizerSliderChange(4, this.value)">
+                                <span class="eq-band-label">500</span>
+                            </div>
+                            <div class="eq-band-col">
+                                <span class="eq-band-val" id="eq-val-5">0dB</span>
+                                <input type="range" class="eq-slider-vertical" id="eq-band-5" min="-12" max="12" step="0.5" value="0" orient="vertical" oninput="onEqualizerSliderChange(5, this.value)">
+                                <span class="eq-band-label">1k</span>
+                            </div>
+                            <div class="eq-band-col">
+                                <span class="eq-band-val" id="eq-val-6">0dB</span>
+                                <input type="range" class="eq-slider-vertical" id="eq-band-6" min="-12" max="12" step="0.5" value="0" orient="vertical" oninput="onEqualizerSliderChange(6, this.value)">
+                                <span class="eq-band-label">2k</span>
+                            </div>
+                            <div class="eq-band-col">
+                                <span class="eq-band-val" id="eq-val-7">0dB</span>
+                                <input type="range" class="eq-slider-vertical" id="eq-band-7" min="-12" max="12" step="0.5" value="0" orient="vertical" oninput="onEqualizerSliderChange(7, this.value)">
+                                <span class="eq-band-label">4k</span>
+                            </div>
+                            <div class="eq-band-col">
+                                <span class="eq-band-val" id="eq-val-8">0dB</span>
+                                <input type="range" class="eq-slider-vertical" id="eq-band-8" min="-12" max="12" step="0.5" value="0" orient="vertical" oninput="onEqualizerSliderChange(8, this.value)">
+                                <span class="eq-band-label">8k</span>
+                            </div>
+                            <div class="eq-band-col">
+                                <span class="eq-band-val" id="eq-val-9">0dB</span>
+                                <input type="range" class="eq-slider-vertical" id="eq-band-9" min="-12" max="12" step="0.5" value="0" orient="vertical" oninput="onEqualizerSliderChange(9, this.value)">
+                                <span class="eq-band-label">16k</span>
+                            </div>
+                        </div>
+
+                        <!-- Preamp & L/R Balance -->
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-top:14px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.06);">
+                            <div>
+                                <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+                                    <span>Preamp Gain</span>
+                                    <span id="eq-preamp-val" style="font-family:monospace; color:var(--accent-bright);">0.0 dB</span>
+                                </div>
+                                <input type="range" id="eq-preamp-slider" min="-12" max="12" step="0.5" value="0" class="form-range" style="width:100%;" oninput="onPreampChange(this.value)">
+                            </div>
+                            <div>
+                                <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+                                    <span>L/R Balance</span>
+                                    <span id="eq-balance-val" style="font-family:monospace; color:var(--accent-bright);">Center</span>
+                                </div>
+                                <input type="range" id="eq-balance-slider" min="-1" max="1" step="0.05" value="0" class="form-range" style="width:100%;" oninput="onBalanceChange(this.value)">
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Tone Controls: Bass & Treble -->
@@ -1117,6 +1246,8 @@
     <script src="/audio/dsp/loudness.js"></script>
     <script src="/audio/dsp/analyzer.js"></script>
     <script src="/audio/dsp/dspEngine.js"></script>
+    <script src="/audio/dsp/eqVisualizer.js"></script>
+    <script src="localLibrary.js"></script>
     <script src="playbackManager.js?v=2.2.3"></script>
     <script src="script.js?v=2.2.3"></script>
 </body>

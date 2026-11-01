@@ -4078,7 +4078,7 @@ body.fullscreen-player-open {
 }
 
 /* ==================================================================
-   TELEGRAM VAULT & REQUEST SYSTEM STYLES
+   LOSSLESS STUDIO & VAULT STYLES
    ================================================================== */
 
 .search-policy-banner {
@@ -4876,4 +4876,85 @@ input:checked+.slider:before {
 @keyframes pulseSparkle {
   0%, 100% { opacity: 0.7; transform: scale(1); }
   50% { opacity: 1; transform: scale(1.2); }
+}
+
+/* ==================================================================
+ * BASA V2 — DSP EQUALIZER, SPECTRUM VISUALIZER & LIBRARY EXTENSIONS
+ * ================================================================== */
+
+.eq-container {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.eq-sliders-grid {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 6px;
+  align-items: end;
+  height: 155px;
+  padding: 10px 0 6px 0;
+}
+
+.eq-band-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  justify-content: space-between;
+}
+
+.eq-band-val {
+  font-size: 10px;
+  font-family: monospace;
+  color: var(--accent-bright);
+  font-weight: 600;
+  min-height: 14px;
+}
+
+.eq-band-label {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+  font-weight: 500;
+}
+
+.eq-slider-vertical {
+  -webkit-appearance: slider-vertical;
+  writing-mode: bt-lr;
+  width: 14px;
+  height: 100px;
+  background: transparent;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.fs-visualizer-canvas {
+  width: 100%;
+  height: 64px;
+  margin-top: 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  display: block;
+}
+
+.library-tab-pane {
+  transition: opacity 0.2s ease;
+}
+
+.library-tab-pane.hidden {
+  display: none;
+}
+
+.library-tab-buttons button {
+  transition: all 0.2s ease;
+}
+
+.library-tab-buttons button.active {
+  background: var(--accent) !important;
+  color: #fff !important;
+  box-shadow: 0 0 12px var(--accent-glow);
 }

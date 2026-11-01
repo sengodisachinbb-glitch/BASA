@@ -5,7 +5,6 @@
  * Enforces provider capability matrix and isolated fault tolerance.
  */
 
-const telegramLosslessProvider = require('./providers/telegramLosslessProvider');
 const localLosslessProvider = require('./providers/localLosslessProvider');
 const internetArchiveLosslessProvider = require('./providers/internetArchiveLosslessProvider');
 const qobuzProvider = require('./providers/qobuzProvider');
@@ -17,7 +16,6 @@ class LosslessProviderRegistry {
         this.providers = new Map();
 
         // Register default providers
-        this.register(telegramLosslessProvider);
         this.register(localLosslessProvider);
         this.register(internetArchiveLosslessProvider);
         this.register(qobuzProvider);
@@ -96,10 +94,9 @@ class LosslessProviderRegistry {
     getCapabilityMatrix() {
         return this.getProviders().map(p => {
             const isConfigured = Boolean(p.enabled);
-            const isTelegram = p.id === 'telegram';
             const isLocal = p.id === 'local';
             const isArchive = p.id === 'internet_archive';
-            const isBuiltinActive = isTelegram || isLocal || isArchive;
+            const isBuiltinActive = isLocal || isArchive;
 
             return {
                 id: p.id,
@@ -114,7 +111,7 @@ class LosslessProviderRegistry {
                 playableLosslessVerified: isBuiltinActive,
                 verificationEngineAvailable: true,
                 userAuthenticationRequired: Boolean(p.requiresAuthentication && !isBuiltinActive),
-                serviceAuthenticationMethod: isTelegram ? 'BOT' : (isLocal ? 'LOCAL_FILESYSTEM' : (isArchive ? 'OPEN_PUBLIC' : 'OAUTH2 / API_KEY')),
+                serviceAuthenticationMethod: isLocal ? 'LOCAL_FILESYSTEM' : (isArchive ? 'OPEN_PUBLIC' : 'OAUTH2 / API_KEY'),
 
                 // Backwards-compatible aliases for existing UI and integration consumers
                 enabled: isBuiltinActive || isConfigured,
@@ -123,7 +120,7 @@ class LosslessProviderRegistry {
                 sourceResolution: isBuiltinActive ? Boolean(p.sourceResolutionSupported) : false,
                 playback: isBuiltinActive ? Boolean(p.playbackSupported) : false,
                 verification: true,
-                authentication: isTelegram ? 'BOT' : Boolean(p.requiresAuthentication)
+                authentication: Boolean(p.requiresAuthentication)
             };
         });
     }

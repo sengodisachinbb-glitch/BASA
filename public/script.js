@@ -149,9 +149,9 @@ function setupRouter() {
             loadUploads();
         } else if (hash === '#sync') {
             showView('view-sync');
-        } else if (hash === '#telegram' || hash === '#lossless') {
-            showView('view-telegram');
-            loadTelegramVault();
+        } else if (hash === '#lossless') {
+            showView('view-lossless');
+            loadLosslessStudio();
         } else if (hash.startsWith('#playlist/')) {
             const id = hash.split('/')[1];
             showView('view-playlist');
@@ -358,6 +358,25 @@ function rankAutoTracks(tracks, query) {
     });
 }
 
+let currentSearchSourceFilter = 'ALL';
+
+function setSearchSourceFilter(source) {
+    currentSearchSourceFilter = source ? source.toUpperCase() : 'ALL';
+    const filterButtons = ['all', 'jiosaavn', 'lossless', 'spotify', 'ytmusic', 'local'];
+    filterButtons.forEach(btn => {
+        const el = document.getElementById(`search-filter-${btn}`);
+        if (el) {
+            el.classList.toggle('active', btn.toUpperCase() === currentSearchSourceFilter);
+        }
+    });
+
+    const searchInput = document.getElementById('search-input');
+    const query = searchInput ? searchInput.value.trim() : '';
+    if (query) {
+        searchMusic(query);
+    }
+}
+
 async function searchMusic(query) {
     const container = document.getElementById('search-results');
     const qualityFilter = document.getElementById('quality-filter');
@@ -369,26 +388,76 @@ async function searchMusic(query) {
     try {
         let musicTracks = [];
         let localTracks = [];
-        
-        try {
-            const searchData = await api(`/music/search?q=${encodeURIComponent(query)}&source=all&limit=30`);
-            musicTracks = searchData.data || [];
-        } catch (e) { console.error("Search Error", e); }
-        
-        if (state.user) {
+        const sourceFilter = currentSearchSourceFilter.toLowerCase();
+
+        if (sourceFilter === 'spotify') {
             try {
-                const localData = await api('/upload/tracks');
-                const qLower = query.toLowerCase();
-                localTracks = (localData.tracks || []).filter(t => 
-                    (t.title && t.title.toLowerCase().includes(qLower)) || 
-                    (t.artist && t.artist.toLowerCase().includes(qLower))
-                ).map(t => ({...t, source: 'local'}));
-            } catch (e) { console.error("Local Search Error", e); }
+                const spRes = await api(`/music/providers/spotify/search?q=${encodeURIComponent(query)}&limit=30`);
+                musicTracks = (spRes.data || spRes.tracks || []).map(t => ({ ...t, source: 'spotify' }));
+            } catch (e) { console.error("Spotify Search Error", e); }
+        } else if (sourceFilter === 'ytmusic') {
+            try {
+                const ytmRes = await api(`/music/providers/ytmusic/search?q=${encodeURIComponent(query)}&limit=30`);
+                musicTracks = (ytmRes.data || ytmRes.tracks || []).map(t => ({ ...t, source: 'ytmusic' }));
+            } catch (e) { console.error("YTMusic Search Error", e); }
+        } else if (sourceFilter === 'jiosaavn') {
+            try {
+                const jioRes = await api(`/music/search?q=${encodeURIComponent(query)}&source=jiosaavn&limit=30`);
+                musicTracks = (jioRes.data || []).map(t => ({ ...t, source: 'jiosaavn' }));
+            } catch (e) { console.error("JioSaavn Search Error", e); }
+        } else if (sourceFilter === 'lossless') {
+            try {
+                const lossRes = await api(`/music/search?q=${encodeURIComponent(query)}&source=lossless&limit=30`);
+                musicTracks = (lossRes.data || []).map(t => ({ ...t, source: t.source || 'local' }));
+            } catch (e) { console.error("Lossless Search Error", e); }
+        } else if (sourceFilter === 'local') {
+            // Search local IndexedDB tracks
+            if (window.localLibrary) {
+                try {
+                    const idbTracks = await window.localLibrary.search(query);
+                    localTracks = idbTracks.map(t => ({ ...t, source: 'local' }));
+                } catch (e) { console.error("Local Library Search Error", e); }
+            }
+            if (state.user) {
+                try {
+                    const localData = await api('/upload/tracks');
+                    const qLower = query.toLowerCase();
+                    const upTracks = (localData.tracks || []).filter(t => 
+                        (t.title && t.title.toLowerCase().includes(qLower)) || 
+                        (t.artist && t.artist.toLowerCase().includes(qLower))
+                    ).map(t => ({...t, source: 'local'}));
+                    localTracks = [...localTracks, ...upTracks];
+                } catch (e) { console.error("Local Search Error", e); }
+            }
+        } else {
+            // ALL sources: multi-source search + local IndexedDB + uploads
+            try {
+                const searchData = await api(`/music/search?q=${encodeURIComponent(query)}&source=all&limit=30`);
+                musicTracks = searchData.data || [];
+            } catch (e) { console.error("Search Error", e); }
+
+            if (window.localLibrary) {
+                try {
+                    const idbTracks = await window.localLibrary.search(query);
+                    localTracks = idbTracks.map(t => ({ ...t, source: 'local' }));
+                } catch (e) {}
+            }
+            if (state.user) {
+                try {
+                    const localData = await api('/upload/tracks');
+                    const qLower = query.toLowerCase();
+                    const upTracks = (localData.tracks || []).filter(t => 
+                        (t.title && t.title.toLowerCase().includes(qLower)) || 
+                        (t.artist && t.artist.toLowerCase().includes(qLower))
+                    ).map(t => ({...t, source: 'local'}));
+                    localTracks = [...localTracks, ...upTracks];
+                } catch (e) { console.error("Local Search Error", e); }
+            }
         }
 
         let allTracks = [...localTracks, ...musicTracks];
         
-        if (selectedQuality === 'AUTO') {
+        if (selectedQuality === 'AUTO' && sourceFilter === 'all') {
             allTracks = rankAutoTracks(allTracks, query);
         }
         
@@ -405,7 +474,7 @@ async function searchMusic(query) {
                         <button class="button button-primary" onclick="document.getElementById('quality-filter').value='AUTO'; searchMusic('${query.replace(/'/g, "\\'")}');">Play best available</button>
                     </div>`;
             } else {
-                container.innerHTML = '<div class="empty-state">No results found. Try a different search.</div>';
+                container.innerHTML = '<div class="empty-state">No results found for this source. Try a different query or source filter.</div>';
             }
         }
     } catch (err) {
@@ -660,13 +729,13 @@ function mapTrackToStandard(track, source = 'youtube') {
         artist = track.artist || 'Unknown Artist';
         preview = track.preview || `/api/upload/stream/${track.id}?token=${state.token || ''}`;
         audioUrl = preview;
-    } else if (effectiveSource === 'telegram' || effectiveSource === 'lossless') {
+    } else if (effectiveSource === 'lossless') {
         id = track.id;
-        cover = track.cover || track.cover_url || `/api/telegram/cover/${track.id}`;
+        cover = track.cover || track.cover_url || '';
         title = track.title || 'Unknown Title';
         artist = track.artist || 'Unknown Artist';
-        preview = track.preview || track.audioUrl || `/api/telegram/stream/${track.id}`;
-        audioUrl = `/api/telegram/stream/${track.id}`;
+        preview = track.preview || track.audioUrl || '';
+        audioUrl = preview;
     } else {
         id = track.id || track.videoId;
         cover = track.cover || 
@@ -705,7 +774,7 @@ function mapTrackToStandard(track, source = 'youtube') {
         license: track.license, licenseUrl: track.licenseUrl || track.license_url,
         rightsStatus: track.rightsStatus || track.rights_status,
         status: track.status,
-        isCached: track.isCached !== undefined ? track.isCached : (effectiveSource !== 'telegram' ? true : false),
+        isCached: track.isCached !== undefined ? track.isCached : true,
         sourceName: track.sourceName,
         sourcePriority: track.sourcePriority,
         qualityRankBadge: track.qualityRankBadge,
@@ -821,7 +890,7 @@ function renderQualityBadge(track) {
         }
     }
 
-    // Section 19: Ordinary search & track cards remain clean. No provider chips (YouTube, JioSaavn, Telegram, Qobuz, etc.)
+    // Section 19: Ordinary search & track cards remain clean. No provider chips (YouTube, JioSaavn, Qobuz, etc.)
     return '';
 }
 
@@ -851,7 +920,7 @@ function renderTrackListItem(track, index, source, options = {}) {
     let sourcesChipsHtml = '';
     if (trackObj.availableSources && trackObj.availableSources.length > 1) {
         const chips = trackObj.availableSources.map(s => {
-            const label = s.source === 'youtube' ? 'YouTube' : (s.source === 'telegram' ? (s.isHiRes ? 'Hi-Res' : 'FLAC') : 'Local');
+            const label = s.source === 'youtube' ? 'YouTube' : (s.source === 'jiosaavn' ? 'JioSaavn HD' : (s.isHiRes ? 'Hi-Res' : 'FLAC'));
             const icon = s.isHiRes ? '💎' : (s.isLossless ? '✦' : '▶');
             return `<span class="source-chip" title="${escapeHtml(s.title)} (${s.quality || 'Audio'})" onclick="event.stopPropagation();openCandidateSourcesModal('${encoded}')">${icon} ${label}</span>`;
         }).join('');
@@ -2314,7 +2383,7 @@ async function loadLibrary() {
     try {
         const data = await api('/library/liked');
         let items = data.tracks || [];
-        // Handle tracks with videoId (YouTube) or id (Archive/Telegram/Local)
+        // Handle tracks with videoId (YouTube) or id (Archive/JioSaavn/Local)
         items = items.filter(item => item.track_data && (item.track_data.videoId || item.track_data.id));
         if (items.length > 0) {
             window.currentLibraryTracks = items.map(item => ({ ...item.track_data, source: item.track_source }));
@@ -2454,7 +2523,7 @@ async function loadPlaylist(id) {
         const data = await api(`/playlists/${id}`);
         const playlist = data.playlist;
         let tracks = data.tracks || [];
-        // Handle tracks with videoId (YouTube) or id (Archive/Telegram/Local) and filter out Shorts
+        // Handle tracks with videoId (YouTube) or id (Archive/JioSaavn/Local) and filter out Shorts
         tracks = tracks.filter(t => t.track_data && (t.track_data.videoId || t.track_data.id) && !isShortTrack(t.track_data));
 
         if (nameEl) nameEl.textContent = playlist.name;
@@ -2944,6 +3013,23 @@ function setupFullScreenPlayer() {
                     syncLyricsTick(ct, true);
                 }, 120);
             }
+
+            // Start live audio visualizer for Fullscreen Player
+            const visCanvas = document.getElementById('fs-visualizer-canvas');
+            if (visCanvas && window.eqVisualizer && window.dspEngine && window.dspEngine.analyzer) {
+                window.eqVisualizer.startLiveVisualizer(visCanvas, window.dspEngine.analyzer);
+            }
+        });
+    }
+
+    // Toggle spectrum / waveform on visualizer canvas click
+    const visCanvasEl = document.getElementById('fs-visualizer-canvas');
+    if (visCanvasEl) {
+        visCanvasEl.addEventListener('click', () => {
+            if (window.eqVisualizer) {
+                const newMode = window.eqVisualizer.toggleMode();
+                showToast(`Visualizer mode: ${newMode}`, 'info');
+            }
         });
     }
 
@@ -2992,6 +3078,9 @@ function setupFullScreenPlayer() {
         closeBtn.addEventListener('click', () => {
             if (document.fullscreenElement) {
                 document.exitFullscreen().catch(() => {});
+            }
+            if (window.eqVisualizer) {
+                window.eqVisualizer.stopLiveVisualizer();
             }
             fsPlayer.classList.remove('active');
             fsPlayer.setAttribute('aria-hidden', 'true');
@@ -3396,83 +3485,18 @@ window.toggleLike = toggleLike;
 window.showAddToPlaylist = showAddToPlaylist;
 
 // Lossless Studio & Master Engine Controller Functions
-window.loadTelegramVault = loadTelegramVault;
-window.loadLosslessStudio = loadTelegramVault;
-window.switchVaultTab = switchVaultTab;
-window.loadVaultSources = loadVaultSources;
-window.startSourceIndexing = startSourceIndexing;
-window.pauseSourceIndexing = pauseSourceIndexing;
-window.stopSourceIndexing = stopSourceIndexing;
-window.deleteVaultSource = deleteVaultSource;
-window.openAddSourceModal = openAddSourceModal;
-window.closeAddSourceModal = closeAddSourceModal;
-window.handleAddSourceSubmit = handleAddSourceSubmit;
-window.loadVaultRequests = loadVaultRequests;
+window.loadLosslessStudio = loadLosslessLibrary;
+window.loadLosslessLibrary = loadLosslessLibrary;
+window.setLosslessLibraryFilter = setLosslessLibraryFilter;
+window.filterLosslessLibrary = filterLosslessLibrary;
 window.playTrackById = playTrackById;
-window.processVaultQueue = processVaultQueue;
-window.openSongRequestModal = openSongRequestModal;
-window.closeSongRequestModal = closeSongRequestModal;
-window.handleSongRequestSubmit = handleSongRequestSubmit;
-window.cleanVaultCache = cleanVaultCache;
 
 // ============================================
-// 10. TELEGRAM VAULT & REQUEST SYSTEM CONTROLLER
+// 10. LOSSLESS STUDIO CONTROLLER
 // ============================================
 
-async function loadTelegramVault() {
-    try {
-        const statusRes = await api('/telegram/status');
-        if (statusRes) {
-            const elSources = document.getElementById('vault-stat-sources');
-            const elIndexed = document.getElementById('vault-stat-indexed');
-            const elCached = document.getElementById('vault-stat-cached');
-            const elStorage = document.getElementById('vault-stat-storage');
-            const elLimit = document.getElementById('vault-stat-limit');
-
-            if (elSources) elSources.textContent = statusRes.totalSources || 0;
-            if (elIndexed) elIndexed.textContent = (statusRes.totalIndexedAudio || 0).toLocaleString();
-            if (elCached) elCached.textContent = (statusRes.totalCachedTracks || 0).toLocaleString();
-            if (elStorage) elStorage.textContent = `${(statusRes.cacheUsageGb || 0).toFixed(2)} GB`;
-            if (elLimit) {
-                elLimit.innerHTML = `Max ${statusRes.maxCacheGb || 25} GB · <a href="javascript:void(0)" onclick="cleanVaultCache()" style="color:var(--accent);text-decoration:underline;">Clean Cache</a>`;
-            }
-        }
-    } catch (e) {
-        console.error('[Telegram Vault] Status load error:', e);
-    }
-
-    loadVaultSources();
-    loadVaultRequests();
-}
-
-function switchVaultTab(tab) {
-    const viewSources = document.getElementById('vault-view-sources');
-    const viewRequests = document.getElementById('vault-view-requests');
-    const viewLibrary = document.getElementById('vault-view-library');
-    const btnSources = document.getElementById('vault-tab-sources');
-    const btnRequests = document.getElementById('vault-tab-requests');
-    const btnLibrary = document.getElementById('vault-tab-library');
-
-    [viewSources, viewRequests, viewLibrary].forEach(v => {
-        if (v) { v.classList.add('hidden'); v.classList.remove('active'); }
-    });
-    [btnSources, btnRequests, btnLibrary].forEach(b => {
-        if (b) b.classList.remove('active');
-    });
-
-    if (tab === 'sources') {
-        if (viewSources) { viewSources.classList.remove('hidden'); viewSources.classList.add('active'); }
-        if (btnSources) btnSources.classList.add('active');
-        loadVaultSources();
-    } else if (tab === 'requests') {
-        if (viewRequests) { viewRequests.classList.remove('hidden'); viewRequests.classList.add('active'); }
-        if (btnRequests) btnRequests.classList.add('active');
-        loadVaultRequests();
-    } else if (tab === 'library') {
-        if (viewLibrary) { viewLibrary.classList.remove('hidden'); viewLibrary.classList.add('active'); }
-        if (btnLibrary) btnLibrary.classList.add('active');
-        loadLosslessLibrary();
-    }
+async function loadLosslessStudio() {
+    loadLosslessLibrary();
 }
 
 // ============================================
@@ -3521,7 +3545,7 @@ function applyLosslessLibraryFilters(queryText = null) {
     const q = (queryText !== null ? queryText : (searchInput ? searchInput.value : '')).toLowerCase().trim();
 
     let filtered = verifiedLosslessTracks.filter(t => {
-        // Filter by category (Section 18: All, Hi-Res, Lossless, Recently Cached, Local FLAC, Telegram FLAC)
+        // Filter by category (Section 18: All, Hi-Res, Lossless, Recently Cached, Local FLAC)
         if (activeLosslessFilter === 'hires') {
             const bit = Number(t.bit_depth || t.bitDepth) || 0;
             const rate = Number(t.sample_rate || t.sampleRate) || 0;
@@ -3534,8 +3558,6 @@ function applyLosslessLibraryFilters(queryText = null) {
             if (!t.cached_at && !t.cachedAt && !t.last_played_at) return false;
         } else if (activeLosslessFilter === 'local') {
             if (t.provider !== 'local' && t.source !== 'local' && t.source_type !== 'LOCAL_FILE') return false;
-        } else if (activeLosslessFilter === 'telegram') {
-            if (t.provider !== 'telegram' && t.source !== 'telegram' && t.source_type !== 'TELEGRAM_FILE') return false;
         }
 
         // Filter by search query
@@ -3639,331 +3661,8 @@ window.filterLosslessLibrary = filterLosslessLibrary;
 window.executeManualLosslessUpgrade = executeManualLosslessUpgrade;
 window.dismissLosslessUpgradeBanner = dismissLosslessUpgradeBanner;
 
-async function loadVaultSources() {
-    const listEl = document.getElementById('vault-sources-list');
-    if (!listEl) return;
-
-    try {
-        const res = await api('/telegram/sources');
-        const sources = res.data || [];
-
-        if (sources.length === 0) {
-            listEl.innerHTML = `
-                <div class="empty-state">
-                    <p>No audio feeds configured yet.</p>
-                    <button class="button button-primary" style="margin-top:12px;" onclick="openAddSourceModal()">+ Add Audio Feed</button>
-                </div>
-            `;
-            return;
-        }
-
-        listEl.innerHTML = sources.map(s => {
-            const isIndexing = s.indexing_status === 'INDEXING';
-            const isPaused = s.indexing_status === 'PAUSED';
-            const isConnected = s.status === 'CONNECTED' || s.status === 'READY';
-            const statusClass = isIndexing ? 'indexing' : (isPaused ? 'paused' : (isConnected ? 'ready' : (s.status === 'AUTHENTICATION_REQUIRED' ? 'auth' : 'idle')));
-            const statusText = isIndexing ? 'INDEXING METADATA' : (isPaused ? 'INDEXING PAUSED' : (s.status || 'IDLE'));
-
-            const pBadgeClass = s.priority === 1 ? 'p1' : (s.priority === 2 ? 'p2' : '');
-            const peerIdDisplay = s.peer_id || s.peerId || s.chat_id || 'Pending Resolution';
-
-            let actionsHtml = '';
-            if (isIndexing) {
-                actionsHtml = `
-                    <button class="button button-secondary" style="font-size:11px; padding:4px 8px;" onclick="pauseSourceIndexing('${s.id}')">⏸ Pause</button>
-                    <button class="button button-secondary" style="font-size:11px; padding:4px 8px; color:#ff6b6b;" onclick="stopSourceIndexing('${s.id}')">⏹ Stop</button>
-                `;
-            } else {
-                actionsHtml = `
-                    <button class="button button-secondary" style="font-size:11px; padding:4px 8px;" onclick="reResolveSource('${s.id}')" title="Dynamically re-resolve peer entity">🔄 Re-resolve</button>
-                    <button class="button button-secondary" style="font-size:11px; padding:4px 8px;" onclick="testVaultSource('${s.id}')" title="Test entity accessibility">⚡ Test</button>
-                    <button class="button button-secondary" style="font-size:11px; padding:4px 8px;" onclick="toggleVaultSource('${s.id}', ${Boolean(s.enabled)})">${s.enabled ? 'Disable' : 'Enable'}</button>
-                    <button class="button button-primary" style="font-size:11px; padding:4px 10px;" onclick="startSourceIndexing('${s.id}')">▶ Index</button>
-                    <button class="button button-ghost" style="font-size:11px; padding:4px 6px; color:#ff6b6b;" onclick="deleteVaultSource('${s.id}')" title="Delete Source">🗑</button>
-                `;
-            }
-
-            return `
-                <div class="vault-source-card ${s.enabled ? '' : 'source-disabled'}">
-                    <div class="source-info">
-                        <div class="source-title-row">
-                            <span class="source-name">${escapeHtml(s.name)}</span>
-                            <span class="priority-badge ${pBadgeClass}">Priority ${s.priority}</span>
-                            <span class="status-pill ${statusClass}">${statusText}</span>
-                            ${!s.enabled ? '<span class="status-pill idle">DISABLED</span>' : ''}
-                        </div>
-                        <div class="source-details">
-                            <span>Identity: <strong>${s.username ? `@${escapeHtml(s.username)}` : '<span style="color:var(--accent);">Dynamic Resolution (Dialogs)</span>'}</strong></span>
-                            <span>Peer ID: <code>${escapeHtml(peerIdDisplay)}</code></span>
-                            <span>Indexed Audio: <strong>${(s.indexed_audio || s.indexedTrackCount || 0).toLocaleString()}</strong></span>
-                            <span>Checkpoint Msg ID: <code>${s.last_indexed_message_id || 0}</code></span>
-                            ${s.last_successful_search || s.lastSuccessfulSearch ? `<span>Last Search: <small>${escapeHtml(s.last_successful_search || s.lastSuccessfulSearch)}</small></span>` : ''}
-                        </div>
-                        ${s.last_error || s.lastError ? `
-                            <div style="margin-top:6px; font-size:11px; color:#ff6b6b; background:rgba(255,107,107,0.1); padding:3px 8px; border-radius:4px;">
-                                ⚠️ Last Notice: ${escapeHtml(s.last_error || s.lastError)} (Errors: ${s.error_count || s.errorCount || 0})
-                            </div>
-                        ` : ''}
-                    </div>
-                    <div class="source-actions">
-                        ${actionsHtml}
-                    </div>
-                </div>
-            `;
-        }).join('');
-    } catch (err) {
-        listEl.innerHTML = `<div class="empty-state">Failed to load sources: ${escapeHtml(err.message)}</div>`;
-    }
-}
-
-async function reResolveSource(sourceId) {
-    try {
-        showToast('Resolving Telegram source entity dynamically...', 'info');
-        const res = await api(`/telegram/sources/${sourceId}/resolve`, { method: 'POST' });
-        if (res.success) {
-            showToast(res.message || 'Entity resolved successfully', 'success');
-        } else {
-            showToast(res.message || 'Entity resolution notice', 'info');
-        }
-        loadVaultSources();
-    } catch (err) {
-        showToast(`Resolution error: ${err.message}`, 'error');
-    }
-}
-
-async function testVaultSource(sourceId) {
-    try {
-        showToast('Testing Telegram source connection...', 'info');
-        const res = await api(`/telegram/sources/${sourceId}/test`, { method: 'POST' });
-        if (res.success) {
-            showToast(`Connected: ${res.title || res.message}`, 'success');
-        } else {
-            showToast(`Status: ${res.status} - ${res.message}`, 'info');
-        }
-        loadVaultSources();
-    } catch (err) {
-        showToast(`Test error: ${err.message}`, 'error');
-    }
-}
-
-async function toggleVaultSource(sourceId, currentlyEnabled) {
-    try {
-        await api(`/telegram/sources/${sourceId}`, {
-            method: 'PUT',
-            body: { enabled: !currentlyEnabled }
-        });
-        showToast(`Source ${!currentlyEnabled ? 'enabled' : 'disabled'}`, 'success');
-        loadVaultSources();
-    } catch (err) {
-        showToast(`Failed to update source: ${err.message}`, 'error');
-    }
-}
-
-async function startSourceIndexing(sourceId) {
-    try {
-        showToast('Initiating background metadata indexing (No mass downloading)...', 'info');
-        const res = await api(`/telegram/sources/${sourceId}/index`, { method: 'POST' });
-        showToast(res.message || 'Indexing started', 'success');
-        loadVaultSources();
-    } catch (err) {
-        showToast(`Could not start indexing: ${err.message}`, 'error');
-    }
-}
-
-async function pauseSourceIndexing(sourceId) {
-    try {
-        const res = await api(`/telegram/sources/${sourceId}/pause`, { method: 'POST' });
-        showToast('Indexing paused', 'info');
-        loadVaultSources();
-    } catch (err) {
-        showToast(err.message, 'error');
-    }
-}
-
-async function stopSourceIndexing(sourceId) {
-    try {
-        const res = await api(`/telegram/sources/${sourceId}/stop`, { method: 'POST' });
-        showToast('Indexing stopped', 'info');
-        loadVaultSources();
-    } catch (err) {
-        showToast(err.message, 'error');
-    }
-}
-
-async function deleteVaultSource(sourceId) {
-    if (!confirm('Are you sure you want to delete this audio source and remove its indexed tracks?')) return;
-    try {
-        await api(`/telegram/sources/${sourceId}`, { method: 'DELETE' });
-        showToast('Source deleted', 'success');
-        loadTelegramVault();
-    } catch (err) {
-        showToast(err.message, 'error');
-    }
-}
-
-function openAddSourceModal() {
-    const modal = document.getElementById('source-modal');
-    if (modal) { modal.classList.remove('hidden'); modal.style.display = 'grid'; }
-}
-
-function closeAddSourceModal() {
-    const modal = document.getElementById('source-modal');
-    if (modal) { modal.classList.add('hidden'); modal.style.display = 'none'; }
-}
-
-async function handleAddSourceSubmit(event) {
-    event.preventDefault();
-    const name = document.getElementById('source-name-input')?.value;
-    const chatId = document.getElementById('source-chat-input')?.value;
-    const username = document.getElementById('source-username-input')?.value;
-    const priority = parseInt(document.getElementById('source-priority-input')?.value || '1', 10);
-
-    try {
-        await api('/telegram/sources', {
-            method: 'POST',
-            body: JSON.stringify({ name, chat_id: chatId, username, priority })
-        });
-        showToast(`Source "${name}" configured!`, 'success');
-        closeAddSourceModal();
-        document.getElementById('source-form')?.reset();
-        loadTelegramVault();
-    } catch (err) {
-        showToast(`Failed to add source: ${err.message}`, 'error');
-    }
-}
-
-async function loadVaultRequests() {
-    const container = document.getElementById('vault-requests-container');
-    const countBadge = document.getElementById('vault-request-count');
-    if (!container) return;
-
-    try {
-        const res = await api('/telegram/requests');
-        const requests = res.data || [];
-
-        if (countBadge) countBadge.textContent = requests.length;
-
-        if (requests.length === 0) {
-            container.innerHTML = `
-                <div class="empty-state">
-                    <p>No song requests in the queue yet.</p>
-                    <button class="button button-primary" style="margin-top:12px;" onclick="openSongRequestModal()">📥 Submit First Request</button>
-                </div>
-            `;
-            return;
-        }
-
-        container.innerHTML = requests.map(r => {
-            const statusClass = (r.status || 'PENDING').toLowerCase();
-            let statusLabel = r.status;
-            if (r.status === 'READY') statusLabel = 'READY TO PLAY';
-            if (r.status === 'FOUND') statusLabel = 'FOUND IN VAULT';
-            if (r.status === 'NOT_FOUND') statusLabel = 'NOT IN ANY SOURCE';
-
-            const sourcesMap = r.sourcesStatus || {};
-            const sourcePills = Object.entries(sourcesMap).map(([srcId, st]) => {
-                const isFound = st === 'SEARCHED_FOUND';
-                const pillColor = isFound ? 'rgba(113,255,186,0.15)' : 'rgba(255,255,255,0.06)';
-                const textColor = isFound ? '#71ffba' : 'var(--text-tertiary)';
-                return `<span style="font-size:10px; padding:2px 6px; border-radius:4px; background:${pillColor}; color:${textColor};">${srcId.replace('source_', '')}: ${st}</span>`;
-            }).join(' ');
-
-            return `
-                <div class="vault-request-card">
-                    <div>
-                        <div class="request-query-text">${escapeHtml(r.query)}</div>
-                        <div class="request-listeners">
-                            <span>👥 <strong>${r.waitingCount || 1}</strong> listener${(r.waitingCount > 1 ? 's' : '')} waiting</span>
-                            <span style="opacity:0.4;">·</span>
-                            <span>Normalized: <code>${escapeHtml(r.normalizedQuery || '')}</code></span>
-                        </div>
-                        <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
-                            ${sourcePills}
-                        </div>
-                    </div>
-                    <div class="request-meta-right">
-                        <span class="status-pill ${statusClass}">${statusLabel}</span>
-                        ${r.resultTrackId ? `<button class="button button-secondary" style="font-size:11px; padding:4px 10px;" onclick="playTrackById('${r.resultTrackId}')">▶ Play</button>` : ''}
-                    </div>
-                </div>
-            `;
-        }).join('');
-    } catch (err) {
-        container.innerHTML = `<div class="empty-state">Failed to load requests: ${escapeHtml(err.message)}</div>`;
-    }
-}
-
 async function playTrackById(trackId) {
-    try {
-        const res = await api(`/telegram/prepare/${trackId}`);
-        if (res.track) {
-            playTrack(res.track);
-        } else {
-            playTrack({ id: trackId, source: 'telegram', title: 'Lossless Track' });
-        }
-    } catch (e) {
-        playTrack({ id: trackId, source: 'telegram', title: 'Lossless Track' });
-    }
-}
-
-async function processVaultQueue() {
-    try {
-        showToast('Evaluating requests across sources in priority order...', 'info');
-        const res = await api('/telegram/requests/process', { method: 'POST' });
-        showToast(`Processed ${res.processed || 0} queue requests!`, 'success');
-        loadVaultRequests();
-    } catch (err) {
-        showToast(`Queue processing failed: ${err.message}`, 'error');
-    }
-}
-
-function openSongRequestModal(prefillQuery = '') {
-    const modal = document.getElementById('request-song-modal');
-    const input = document.getElementById('request-query-input');
-    if (modal) {
-        modal.classList.remove('hidden');
-        modal.style.display = 'grid';
-        if (input) {
-            input.value = prefillQuery || (document.getElementById('search-input')?.value || '');
-            input.focus();
-        }
-    }
-}
-
-function closeSongRequestModal() {
-    const modal = document.getElementById('request-song-modal');
-    if (modal) { modal.classList.add('hidden'); modal.style.display = 'none'; }
-}
-
-async function handleSongRequestSubmit(event) {
-    event.preventDefault();
-    const query = document.getElementById('request-query-input')?.value;
-    if (!query) return;
-
-    try {
-        const res = await api('/telegram/request', {
-            method: 'POST',
-            body: JSON.stringify({ query })
-        });
-        showToast(res.message || 'Song request registered!', 'success');
-        closeSongRequestModal();
-        document.getElementById('request-song-form')?.reset();
-        if (state.currentView === 'telegram') loadVaultRequests();
-    } catch (err) {
-        showToast(`Request submission failed: ${err.message}`, 'error');
-    }
-}
-
-async function cleanVaultCache() {
-    if (!confirm('Run LRU cache cleanup to enforce storage limits? Least-recently-played tracks will be evicted if limit is exceeded.')) return;
-    try {
-        showToast('Running cache maintenance...', 'info');
-        const res = await api('/telegram/cache/clean', { method: 'POST' });
-        showToast(res.message || 'Cache cleaned successfully', 'success');
-        loadTelegramVault();
-    } catch (err) {
-        showToast(`Cache cleanup failed: ${err.message}`, 'error');
-    }
+    playTrack({ id: trackId, source: 'lossless', title: 'Lossless Track' });
 }
 
 // ============================================
@@ -4009,8 +3708,116 @@ function openAudioSettingsModal() {
         if (crossEl && cfg.crossfeed) crossEl.value = cfg.crossfeed;
     }
     
+    // Sync 10-band equalizer sliders and draw curve
+    syncEqualizerSlidersFromEngine();
+    
     modal.classList.remove('hidden');
     modal.style.display = 'grid';
+}
+
+function syncEqualizerSlidersFromEngine() {
+    if (!window.dspEngine) return;
+    const bands = window.dspEngine.equalizer?.bands || [];
+    bands.forEach((b, i) => {
+        const slider = document.getElementById(`eq-band-${i}`);
+        const label = document.getElementById(`eq-val-${i}`);
+        if (slider) slider.value = b.gain;
+        if (label) label.textContent = `${b.gain > 0 ? '+' : ''}${b.gain}dB`;
+    });
+
+    const preSlider = document.getElementById('eq-preamp-slider');
+    const preVal = document.getElementById('eq-preamp-val');
+    const curPre = window.dspEngine.equalizer?.preampGain || 0;
+    if (preSlider) preSlider.value = curPre;
+    if (preVal) preVal.textContent = `${curPre > 0 ? '+' : ''}${curPre.toFixed(1)} dB`;
+
+    const balSlider = document.getElementById('eq-balance-slider');
+    const balVal = document.getElementById('eq-balance-val');
+    const curBal = window.dspEngine.stereo?.balance || 0;
+    if (balSlider) balSlider.value = curBal;
+    if (balVal) {
+        if (curBal === 0) balVal.textContent = 'Center';
+        else if (curBal < 0) balVal.textContent = `L ${Math.round(Math.abs(curBal) * 100)}%`;
+        else balVal.textContent = `R ${Math.round(curBal * 100)}%`;
+    }
+
+    const canvas = document.getElementById('eq-curve-canvas');
+    if (canvas && window.eqVisualizer) {
+        window.eqVisualizer.drawResponseCurve(canvas, window.dspEngine);
+    }
+}
+
+function onEqualizerSliderChange(bandIndex, gainVal) {
+    const val = parseFloat(gainVal);
+    const label = document.getElementById(`eq-val-${bandIndex}`);
+    if (label) label.textContent = `${val > 0 ? '+' : ''}${val}dB`;
+    if (window.dspEngine) {
+        window.dspEngine.setBandGain(bandIndex, val);
+        const presetEl = document.getElementById('setting-dsp-preset');
+        if (presetEl) presetEl.value = 'CUSTOM';
+        const canvas = document.getElementById('eq-curve-canvas');
+        if (canvas && window.eqVisualizer) {
+            window.eqVisualizer.drawResponseCurve(canvas, window.dspEngine);
+        }
+    }
+}
+
+function onPreampChange(preampVal) {
+    const val = parseFloat(preampVal);
+    const label = document.getElementById('eq-preamp-val');
+    if (label) label.textContent = `${val > 0 ? '+' : ''}${val.toFixed(1)} dB`;
+    if (window.dspEngine) {
+        window.dspEngine.setPreamp(val);
+        const canvas = document.getElementById('eq-curve-canvas');
+        if (canvas && window.eqVisualizer) {
+            window.eqVisualizer.drawResponseCurve(canvas, window.dspEngine);
+        }
+    }
+}
+
+function onBalanceChange(balanceVal) {
+    const val = parseFloat(balanceVal);
+    const label = document.getElementById('eq-balance-val');
+    if (label) {
+        if (val === 0) label.textContent = 'Center';
+        else if (val < 0) label.textContent = `L ${Math.round(Math.abs(val) * 100)}%`;
+        else balVal.textContent = `R ${Math.round(val * 100)}%`;
+    }
+    if (window.dspEngine && window.dspEngine.stereo) {
+        window.dspEngine.stereo.setBalance(val);
+    }
+}
+
+function resetEqualizerCurve() {
+    if (window.dspEngine) {
+        window.dspEngine.setPreset('FLAT');
+        window.dspEngine.setPreamp(0);
+        if (window.dspEngine.stereo) window.dspEngine.stereo.setBalance(0);
+    }
+    for (let i = 0; i < 10; i++) {
+        const slider = document.getElementById(`eq-band-${i}`);
+        const label = document.getElementById(`eq-val-${i}`);
+        if (slider) slider.value = 0;
+        if (label) label.textContent = '0dB';
+    }
+    const preSlider = document.getElementById('eq-preamp-slider');
+    const preVal = document.getElementById('eq-preamp-val');
+    if (preSlider) preSlider.value = 0;
+    if (preVal) preVal.textContent = '0.0 dB';
+
+    const balSlider = document.getElementById('eq-balance-slider');
+    const balVal = document.getElementById('eq-balance-val');
+    if (balSlider) balSlider.value = 0;
+    if (balVal) balVal.textContent = 'Center';
+
+    const presetEl = document.getElementById('setting-dsp-preset');
+    if (presetEl) presetEl.value = 'FLAT';
+
+    const canvas = document.getElementById('eq-curve-canvas');
+    if (canvas && window.eqVisualizer && window.dspEngine) {
+        window.eqVisualizer.drawResponseCurve(canvas, window.dspEngine);
+    }
+    showToast('Equalizer reset to Flat (0 dB)', 'info');
 }
 
 function closeAudioSettingsModal() {
@@ -4036,6 +3843,7 @@ function updateDspSetting(key, value) {
             break;
         case 'preset':
             window.dspEngine.setPreset(value);
+            syncEqualizerSlidersFromEngine();
             break;
         case 'bass':
             window.dspEngine.setBass(value);
@@ -4324,8 +4132,8 @@ function openCandidateSourcesModal(encodedTrackData) {
         }
 
         let providerDisplayName = 'YouTube Audio';
-        if (cand.source === 'telegram' || cand.source === 'lossless') {
-            providerDisplayName = 'Telegram Lossless Vault';
+        if (cand.source === 'lossless') {
+            providerDisplayName = 'Lossless Vault';
         } else if (cand.source === 'jiosaavn') {
             providerDisplayName = 'JioSaavn HD Audio';
         } else if (cand.source === 'local') {
@@ -4708,7 +4516,7 @@ async function downloadTrackFromData(encodedCandidateData) {
     try {
         const params = new URLSearchParams({
             id: track.id,
-            source: track.source || 'telegram',
+            source: track.source || 'local',
             title: track.title || '',
             artist: track.artist || '',
             format: track.format || '',
@@ -4717,23 +4525,8 @@ async function downloadTrackFromData(encodedCandidateData) {
 
         const downloadUrl = `/api/music/download?${params}`;
         
-        // Check if on-demand retrieval is required
         const checkRes = await fetch(downloadUrl);
-        if (checkRes.status === 202) {
-            showToast(`✨ Retrieving lossless master for "${track.title}". Download will start shortly...`, 'info');
-            let ready = false;
-            let attempts = 0;
-            while (!ready && attempts < 25) {
-                await new Promise(r => setTimeout(r, 1500));
-                attempts++;
-                const pollRes = await fetch(`/api/telegram/prepare/${track.id}`);
-                const pollData = await pollRes.json();
-                if (pollData.status === 'READY') {
-                    ready = true;
-                    break;
-                }
-            }
-        } else if (!checkRes.ok && checkRes.status !== 200) {
+        if (!checkRes.ok && checkRes.status !== 200) {
             const errData = await checkRes.json().catch(() => ({}));
             throw new Error(errData.message || 'Download request failed');
         }
@@ -4755,7 +4548,286 @@ async function downloadTrackFromData(encodedCandidateData) {
     }
 }
 
-// Window bindings for Audio Settings, Candidate Sources, Lyrics, and Downloads
+// ==========================================
+// 20. MULTI-SOURCE LIBRARY & DISCOVERY (Local, Spotify, YTMusic)
+// ==========================================
+
+function switchLibraryTab(tabName) {
+    const tabs = ['liked', 'playlists', 'history', 'local', 'spotify', 'ytmusic'];
+    tabs.forEach(t => {
+        const btn = document.getElementById(`lib-tab-${t}`);
+        const pane = document.getElementById(`lib-view-${t}`);
+        if (btn) {
+            if (t === tabName) {
+                btn.className = 'button button-primary active';
+            } else {
+                btn.className = 'button button-secondary';
+            }
+        }
+        if (pane) {
+            pane.classList.toggle('hidden', t !== tabName);
+        }
+    });
+
+    if (tabName === 'liked') {
+        loadLibrary();
+    } else if (tabName === 'playlists') {
+        loadPlaylistsTab();
+    } else if (tabName === 'history') {
+        loadHistoryTab();
+    } else if (tabName === 'local') {
+        renderLocalTracks();
+    } else if (tabName === 'spotify') {
+        const grid = document.getElementById('spotify-results-grid');
+        if (grid && (grid.querySelector('.empty-state') || !grid.children.length)) {
+            loadSpotifyCurated("Today's Top Hits");
+        }
+    } else if (tabName === 'ytmusic') {
+        const input = document.getElementById('ytmusic-search-input');
+        if (input) input.focus();
+    }
+}
+
+async function loadPlaylistsTab() {
+    const grid = document.getElementById('library-playlists-grid');
+    if (!grid) return;
+    if (!state.token) {
+        grid.innerHTML = '<div class="empty-state">Sign in to create and manage custom playlists</div>';
+        return;
+    }
+    grid.innerHTML = '<div class="loader">Loading playlists...</div>';
+    try {
+        const data = await api('/playlists');
+        const playlists = data.playlists || [];
+        if (playlists.length > 0) {
+            grid.innerHTML = playlists.map(pl => `
+                <div class="track-card glass-subtle" onclick="location.hash='#playlist/${pl.id}'">
+                    <div class="track-card-cover" style="display:grid; place-items:center; font-size:36px; background:rgba(255,255,255,0.04);">
+                        🎵
+                    </div>
+                    <div class="track-card-info">
+                        <div class="track-card-title">${escapeHtml(pl.name)}</div>
+                        <div class="track-card-artist">${pl.track_count || 0} track${(pl.track_count || 0) === 1 ? '' : 's'}</div>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            grid.innerHTML = '<div class="empty-state">You have not created any playlists yet.</div>';
+        }
+    } catch (err) {
+        grid.innerHTML = `<div class="empty-state">Failed to load playlists: ${escapeHtml(err.message)}</div>`;
+    }
+}
+
+async function loadHistoryTab() {
+    const container = document.getElementById('history-list');
+    if (!container) return;
+    if (!state.token) {
+        container.innerHTML = '<div class="empty-state">Sign in to view your listening history</div>';
+        return;
+    }
+    container.innerHTML = '<div class="loader">Loading listening history...</div>';
+    try {
+        const data = await api('/library/history?limit=30');
+        const tracks = (data.tracks || []).filter(item => item.track_data && (item.track_data.videoId || item.track_data.id));
+        if (tracks.length > 0) {
+            container.innerHTML = tracks.map((item, i) =>
+                renderTrackListItem(item.track_data, i, item.track_source || 'youtube', { contextType: 'history' })
+            ).join('');
+        } else {
+            container.innerHTML = '<div class="empty-state">Your listening history is empty.</div>';
+        }
+    } catch (err) {
+        container.innerHTML = `<div class="empty-state">Failed to load history: ${escapeHtml(err.message)}</div>`;
+    }
+}
+
+// Local IndexedDB Library Handlers
+async function handleLocalFilesSelected(event) {
+    const files = event.target?.files;
+    if (!files || files.length === 0) return;
+
+    if (!window.localLibrary) {
+        showToast('Local library not initialized', 'error');
+        return;
+    }
+
+    showToast(`Importing ${files.length} audio file${files.length > 1 ? 's' : ''}...`, 'info');
+    try {
+        const result = await window.localLibrary.importFiles(files);
+        showToast(`Successfully imported ${result.imported.length} track${result.imported.length > 1 ? 's' : ''}!`, 'success');
+        renderLocalTracks();
+    } catch (err) {
+        showToast(`Import error: ${err.message}`, 'error');
+    } finally {
+        event.target.value = '';
+    }
+}
+
+async function renderLocalTracks() {
+    const container = document.getElementById('local-tracks-list');
+    if (!container) return;
+
+    if (!window.localLibrary) {
+        container.innerHTML = '<p class="empty-state">Local library not available.</p>';
+        return;
+    }
+
+    try {
+        const tracks = await window.localLibrary.getAllTracks();
+        if (tracks.length === 0) {
+            container.innerHTML = '<p class="empty-state">No local tracks imported yet. Click "+ Import Audio Files" to import FLAC, WAV, ALAC, or MP3 files from your device.</p>';
+            return;
+        }
+
+        container.innerHTML = tracks.map((track, i) => {
+            const formatBadge = track.isLossless 
+                ? '<span class="quality-badge badge-gold" style="font-size:10px; padding:2px 6px;">LOSSLESS • ' + escapeHtml(track.format) + '</span>'
+                : '<span class="quality-badge badge-blue" style="font-size:10px; padding:2px 6px;">' + escapeHtml(track.format) + '</span>';
+
+            const durationStr = formatDuration(track.duration || 0);
+            const coverImg = track.artworkUrl
+                ? `<img src="${track.artworkUrl}" style="width:40px;height:40px;border-radius:6px;object-fit:cover;" alt="Cover">`
+                : `<div style="width:40px;height:40px;border-radius:6px;background:rgba(255,255,255,0.06);display:grid;place-items:center;font-size:18px;">🎵</div>`;
+
+            return `
+            <div class="track-list-item" style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid rgba(255,255,255,0.04); cursor:pointer;" onclick="playLocalTrack('${escapeHtml(track.id)}')">
+                <div style="display:flex; align-items:center; gap:12px; flex:1; min-width:0;">
+                    <span style="font-size:12px; opacity:0.5; width:20px; text-align:right;">${i + 1}</span>
+                    ${coverImg}
+                    <div style="min-width:0; flex:1;">
+                        <div style="font-weight:600; font-size:13px; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(track.title || 'Unknown Title')}</div>
+                        <div style="font-size:12px; opacity:0.7; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(track.artist || 'Unknown Artist')} • ${escapeHtml(track.album || 'Local Library')}</div>
+                    </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    ${formatBadge}
+                    <span style="font-size:12px; opacity:0.6; font-family:monospace;">${durationStr}</span>
+                    <button class="button button-secondary" style="font-size:11px; padding:4px 8px;" onclick="event.stopPropagation(); deleteLocalTrack('${escapeHtml(track.id)}')">✕</button>
+                </div>
+            </div>`;
+        }).join('');
+    } catch (err) {
+        container.innerHTML = `<p class="empty-state">Failed to load local tracks: ${escapeHtml(err.message)}</p>`;
+    }
+}
+
+async function playLocalTrack(trackId) {
+    if (!window.localLibrary) return;
+    const track = await window.localLibrary.getTrack(trackId);
+    if (!track) {
+        showToast('Local track not found in storage', 'error');
+        return;
+    }
+    const mediaUrl = window.localLibrary.getTrackMediaUrl(track);
+    const standardTrack = {
+        id: track.id,
+        title: track.title || 'Untitled Track',
+        artist: track.artist || 'Local Artist',
+        album: track.album || 'Local Library',
+        cover: track.artworkUrl || '',
+        preview: mediaUrl,
+        audioUrl: mediaUrl,
+        source: 'local',
+        format: track.format || 'FLAC',
+        codec: track.codec || track.format || 'FLAC',
+        sampleRate: track.sampleRate || 44100,
+        bitDepth: track.bitDepth || null,
+        duration: track.duration || 0,
+        isLossless: Boolean(track.isLossless),
+        quality: track.isLossless ? 'LOSSLESS' : 'HIGH'
+    };
+    playTrack(standardTrack);
+}
+
+async function deleteLocalTrack(trackId) {
+    if (!window.localLibrary) return;
+    try {
+        await window.localLibrary.deleteTrack(trackId);
+        showToast('Track removed from local library', 'info');
+        renderLocalTracks();
+    } catch (e) {
+        showToast('Failed to delete track', 'error');
+    }
+}
+
+async function clearLocalLibrary() {
+    if (!window.localLibrary) return;
+    if (confirm('Clear all local tracks from browser storage?')) {
+        await window.localLibrary.clear();
+        showToast('Local library cleared', 'info');
+        renderLocalTracks();
+    }
+}
+
+// Spotify Discovery Handlers
+async function searchSpotifyTracks() {
+    const input = document.getElementById('spotify-search-input');
+    const q = input ? input.value.trim() : '';
+    if (!q) {
+        showToast('Please enter a search term for Spotify', 'warning');
+        return;
+    }
+    const grid = document.getElementById('spotify-results-grid');
+    if (!grid) return;
+
+    grid.innerHTML = '<div class="loader">Searching Spotify catalog...</div>';
+    try {
+        const res = await api(`/music/providers/spotify/search?q=${encodeURIComponent(q)}&limit=24`);
+        const tracks = res.data || res.tracks || [];
+        if (tracks.length === 0) {
+            grid.innerHTML = `<p class="empty-state">No Spotify tracks found matching "${escapeHtml(q)}".</p>`;
+            return;
+        }
+        grid.innerHTML = tracks.map((t, idx) => renderTrackCard(t, 'spotify', idx, 'spotify')).join('');
+    } catch (err) {
+        grid.innerHTML = `<p class="empty-state">Spotify search error: ${escapeHtml(err.message)}</p>`;
+    }
+}
+
+async function loadSpotifyCurated(themeOrQuery = "Today's Top Hits") {
+    const grid = document.getElementById('spotify-results-grid');
+    if (!grid) return;
+    grid.innerHTML = `<div class="loader">Loading Spotify tracks for "${escapeHtml(themeOrQuery)}"...</div>`;
+    try {
+        const res = await api(`/music/providers/spotify/search?q=${encodeURIComponent(themeOrQuery)}&limit=18`);
+        const tracks = res.data || res.tracks || [];
+        if (tracks.length > 0) {
+            grid.innerHTML = tracks.map((t, idx) => renderTrackCard(t, 'spotify', idx, 'spotify')).join('');
+        } else {
+            grid.innerHTML = '<p class="empty-state">No tracks found.</p>';
+        }
+    } catch (err) {
+        grid.innerHTML = `<p class="empty-state">Failed to load Spotify tracks: ${escapeHtml(err.message)}</p>`;
+    }
+}
+
+// YouTube Music Discovery Handlers
+async function searchYTMusicTracks() {
+    const input = document.getElementById('ytmusic-search-input');
+    const q = input ? input.value.trim() : '';
+    if (!q) {
+        showToast('Please enter a search term for YouTube Music', 'warning');
+        return;
+    }
+    const grid = document.getElementById('ytmusic-results-grid');
+    if (!grid) return;
+
+    grid.innerHTML = '<div class="loader">Searching YouTube Music...</div>';
+    try {
+        const res = await api(`/music/providers/ytmusic/search?q=${encodeURIComponent(q)}&limit=24`);
+        const tracks = res.data || res.tracks || [];
+        if (tracks.length === 0) {
+            grid.innerHTML = `<p class="empty-state">No YouTube Music tracks found for "${escapeHtml(q)}".</p>`;
+            return;
+        }
+        grid.innerHTML = tracks.map((t, idx) => renderTrackCard(t, 'ytmusic', idx, 'ytmusic')).join('');
+    } catch (err) {
+        grid.innerHTML = `<p class="empty-state">YouTube Music search error: ${escapeHtml(err.message)}</p>`;
+    }
+}
+
+// Window bindings for Audio Settings, Candidate Sources, Lyrics, Downloads, Library & DSP
 window.openAudioSettingsModal = openAudioSettingsModal;
 window.closeAudioSettingsModal = closeAudioSettingsModal;
 window.savePlaybackSetting = savePlaybackSetting;
@@ -4764,3 +4836,19 @@ window.closeCandidateSourcesModal = closeCandidateSourcesModal;
 window.playSpecificCandidate = playSpecificCandidate;
 window.downloadTrackFromData = downloadTrackFromData;
 window.setLyricsOffset = setLyricsOffset;
+
+// Multi-Source & Library Window Bindings
+window.switchLibraryTab = switchLibraryTab;
+window.handleLocalFilesSelected = handleLocalFilesSelected;
+window.renderLocalTracks = renderLocalTracks;
+window.clearLocalLibrary = clearLocalLibrary;
+window.deleteLocalTrack = deleteLocalTrack;
+window.playLocalTrack = playLocalTrack;
+window.searchSpotifyTracks = searchSpotifyTracks;
+window.loadSpotifyCurated = loadSpotifyCurated;
+window.searchYTMusicTracks = searchYTMusicTracks;
+window.setSearchSourceFilter = setSearchSourceFilter;
+window.onEqualizerSliderChange = onEqualizerSliderChange;
+window.onPreampChange = onPreampChange;
+window.onBalanceChange = onBalanceChange;
+window.resetEqualizerCurve = resetEqualizerCurve;

@@ -97,7 +97,6 @@ class LosslessNormalizer {
         let sourceType = raw.sourceType || raw.source_type;
         if (!sourceType) {
             if (provider === 'local') sourceType = 'LOCAL_FILE';
-            else if (provider === 'telegram') sourceType = raw.isCached ? 'CACHED_FILE' : 'TELEGRAM_FILE';
             else if (raw.localPath && !raw.isCached) sourceType = 'LOCAL_FILE';
             else if (raw.localPath && raw.isCached) sourceType = 'CACHED_FILE';
             else sourceType = 'REMOTE_HTTP';

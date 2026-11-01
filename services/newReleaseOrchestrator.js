@@ -199,7 +199,7 @@ class NewReleaseOrchestrator {
     /**
      * Determines whether the candidate has a playable playback source in BASA.
      * Architectural rule: YTMusic and Spotify are metadata providers.
-     * Playable candidates must have JioSaavn streamUrl, YouTube videoId, Telegram audio, or Local upload.
+     * Playable candidates must have JioSaavn streamUrl, YouTube videoId, or Local upload.
      */
     evaluatePlayability(candidate) {
         // JioSaavn with streamUrl
@@ -218,15 +218,6 @@ class NewReleaseOrchestrator {
                 playableSourceAvailable: true,
                 primarySource: 'youtube',
                 sourceProviders: ['youtube']
-            };
-        }
-
-        // Telegram FLAC
-        if (candidate.source === 'telegram' && candidate.id) {
-            return {
-                playableSourceAvailable: true,
-                primarySource: 'telegram',
-                sourceProviders: ['telegram']
             };
         }
 

@@ -15,7 +15,6 @@ const qualityResolver = require('./qualityResolver');
 const textNormalizer = require('./textNormalizer');
 const trackAdapters = require('./trackAdapters');
 const youtubeProvider = require('./youtubeProvider');
-const telegramProvider = require('./telegramProvider');
 const jioSaavnProvider = require('./jioSaavnProvider');
 const ytmusicProvider = require('./ytmusicProvider');
 const spotifyProvider = require('./spotifyProvider');
@@ -31,8 +30,7 @@ class SearchOrchestrator {
             youtubeProvider,
             ytmusicProvider,
             spotifyProvider,
-            jioSaavnProvider,
-            telegramProvider
+            jioSaavnProvider
         ];
     }
 
@@ -57,9 +55,9 @@ class SearchOrchestrator {
             return youtubeProvider.search(query, { limit });
         }
 
-        // 2. Explicit Lossless / Telegram source
-        if (source === 'lossless' || source === 'telegram') {
-            return telegramProvider.searchTracks(query, { db, limit });
+        // 2. Explicit Lossless / Local source
+        if (source === 'lossless') {
+            return db ? sourceResolver.resolveLocalTracks(query, db) : [];
         }
 
         // 3. Explicit JioSaavn source
@@ -94,13 +92,6 @@ class SearchOrchestrator {
             }),
             jioSaavnProvider.search(query, { limit: Math.min(limit, 15) }).catch(err => {
                 console.warn('[SearchOrchestrator] JioSaavn provider failed:', err.message);
-                return [];
-            }),
-            Promise.resolve().then(() => {
-                if (db) return telegramProvider.searchTracks(query, { db, limit: Math.min(limit, 15) });
-                return [];
-            }).catch(err => {
-                console.warn('[SearchOrchestrator] Telegram provider failed:', err.message);
                 return [];
             }),
             Promise.resolve().then(() => {

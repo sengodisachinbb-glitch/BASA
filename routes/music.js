@@ -176,8 +176,6 @@ async function youtubeSearch(query, limit = 25) {
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const telegramIngestService = require('../services/telegramIngestService');
-const telegramProvider = require('../services/telegramProvider');
 const jioSaavnProvider = require('../services/jioSaavnProvider');
 const searchOrchestrator = require('../services/searchOrchestrator');
 const sourceResolver = require('../services/sourceResolver');
@@ -492,6 +490,28 @@ router.get('/providers/spotify/search', async (req, res) => {
     }
 });
 
+// GET /api/music/providers/spotify/playlist/:id
+router.get('/providers/spotify/playlist/:id', async (req, res) => {
+    try {
+        const data = await spotifyProvider.getPlaylist(req.params.id);
+        if (!data) return res.status(404).json({ success: false, error: 'Playlist not found' });
+        res.json({ success: true, provider: 'spotify', data });
+    } catch (err) {
+        res.status(502).json({ success: false, error: err.message });
+    }
+});
+
+// GET /api/music/providers/spotify/album/:id
+router.get('/providers/spotify/album/:id', async (req, res) => {
+    try {
+        const data = await spotifyProvider.getAlbum(req.params.id);
+        if (!data) return res.status(404).json({ success: false, error: 'Album not found' });
+        res.json({ success: true, provider: 'spotify', data });
+    } catch (err) {
+        res.status(502).json({ success: false, error: err.message });
+    }
+});
+
 // GET /api/music/jiosaavn-stream/:id
 // Provider-controlled secure stream endpoint: validates trackId with JioSaavn, never accepts arbitrary URLs
 router.get('/jiosaavn-stream/:id', async (req, res) => {
@@ -614,7 +634,7 @@ router.get('/resolve-stream', async (req, res) => {
 });
 
 // GET /api/music/inspect-stream
-// Forensically inspects local/telegram stream container (magic bytes, STREAMINFO, MD5, SHA-256)
+// Forensically inspects local stream container (magic bytes, STREAMINFO, MD5, SHA-256)
 router.get('/inspect-stream', async (req, res) => {
     try {
         const db = req.app.locals.db;
@@ -626,27 +646,7 @@ router.get('/inspect-stream', async (req, res) => {
         }
 
         let diskPath = null;
-        if (source === 'telegram' || !source || source === 'lossless') {
-            if (db) {
-                const stmt = db.prepare(`
-                    SELECT file_path FROM telegram_tracks 
-                    WHERE id = ? OR file_hash = ? OR telegram_message_id = (SELECT message_id FROM telegram_library_index WHERE id = ?)
-                `);
-                stmt.bind([trackId, trackId, trackId]);
-                if (stmt.step()) {
-                    const row = stmt.get();
-                    if (row[0]) {
-                        diskPath = path.join(__dirname, '..', 'uploads', 'telegram', path.basename(row[0]));
-                    }
-                }
-                stmt.free();
-            }
-
-            if (!diskPath) {
-                const directCheck = path.join(__dirname, '..', 'uploads', 'telegram', `${trackId}.flac`);
-                if (fs.existsSync(directCheck)) diskPath = directCheck;
-            }
-        } else if (source === 'local') {
+        if (source === 'local' || !source) {
             if (db) {
                 const stmt = db.prepare('SELECT file_path FROM uploaded_tracks WHERE id = ?');
                 stmt.bind([trackId]);
@@ -696,13 +696,8 @@ router.get('/resolve/:id', async (req, res) => {
         let baseTrack = null;
 
         // Check if trackId belongs to YouTube
-        if (!trackId.startsWith('tg_') && !trackId.startsWith('ia_') && !trackId.startsWith('src_')) {
+        if (!trackId.startsWith('ia_') && !trackId.startsWith('src_')) {
             baseTrack = await youtubeProvider.resolve(trackId);
-        }
-
-        // Check if trackId belongs to Telegram
-        if (!baseTrack && (trackId.startsWith('tg_') || trackId.startsWith('src_'))) {
-            baseTrack = await telegramProvider.resolve(trackId, { db });
         }
 
         if (!baseTrack) {
@@ -745,15 +740,36 @@ router.get('/search', async (req, res) => {
             }
         }
 
-        // 2. Explicit Lossless / Studio source
-        if (source === 'lossless' || source === 'telegram') {
-            const losslessTracks = await telegramProvider.searchTracks(q, {
-                db,
-                limit: parsedLimit
-            });
-            return res.json({ 
-                data: losslessTracks
-            });
+        // 2. Explicit Lossless / Local Library source
+        if (source === 'lossless') {
+            if (db) {
+                const stmt = db.prepare("SELECT * FROM uploaded_tracks WHERE lossless = 1 LIMIT ?");
+                stmt.bind([parsedLimit]);
+                const results = [];
+                while (stmt.step()) {
+                    const row = stmt.getAsObject();
+                    results.push({
+                        id: row.id,
+                        title: row.title,
+                        artist: row.artist,
+                        album: row.album,
+                        duration: row.duration,
+                        audioUrl: `/api/upload/file/${path.basename(row.file_path)}`,
+                        source: 'local',
+                        lossless: true,
+                        quality: row.quality || 'LOSSLESS'
+                    });
+                }
+                stmt.free();
+                return res.json({ data: results });
+            }
+            return res.json({ data: [] });
+        }
+
+        // 2b. Explicit JioSaavn 320k HD source
+        if (source === 'jiosaavn') {
+            const jioTracks = await jioSaavnProvider.searchTracks(q, { limit: parsedLimit });
+            return res.json({ data: jioTracks });
         }
 
         // 3. Explicit YTMusic metadata source
@@ -881,9 +897,27 @@ router.get('/lossless', async (req, res) => {
         const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 30, 1), 50);
         const db = req.app.locals.db;
 
-        // Fetch pristine lossless tracks from native catalog (FLAC / Studio Masters)
-        const allTracks = await telegramProvider.searchTracks('', { db, limit });
-        const losslessTracks = (allTracks || []).filter(t => t.lossless);
+        const losslessTracks = [];
+        if (db) {
+            const stmt = db.prepare("SELECT * FROM uploaded_tracks WHERE lossless = 1 ORDER BY created_at DESC LIMIT ?");
+            stmt.bind([limit]);
+            while (stmt.step()) {
+                const row = stmt.getAsObject();
+                losslessTracks.push({
+                    id: row.id,
+                    title: row.title,
+                    artist: row.artist,
+                    album: row.album,
+                    duration: row.duration,
+                    audioUrl: `/api/upload/file/${path.basename(row.file_path)}`,
+                    source: 'local',
+                    lossless: true,
+                    format: row.format || 'FLAC',
+                    quality: row.quality || 'LOSSLESS'
+                });
+            }
+            stmt.free();
+        }
 
         res.json({ data: losslessTracks });
     } catch (err) {
@@ -1003,7 +1037,7 @@ router.get('/lyrics', async (req, res) => {
 
         if (!queryTitle && trackId && db) {
             try {
-                const stmt = db.prepare('SELECT title, artist, album, duration FROM telegram_library_index WHERE id = ?');
+                const stmt = db.prepare('SELECT title, artist, album, duration FROM uploaded_tracks WHERE id = ?');
                 stmt.bind([trackId]);
                 if (stmt.step()) {
                     const vals = stmt.get();
@@ -1066,7 +1100,7 @@ router.get('/download', async (req, res) => {
         const trackId = id || req.query.fileHash || req.query.videoId || '';
 
         // 1. YouTube & Unsupported sources rejection
-        if (requestedSource === 'youtube' || String(trackId).startsWith('yt_') || req.query.videoId || !['telegram', 'lossless', 'local'].includes(requestedSource)) {
+        if (requestedSource === 'youtube' || String(trackId).startsWith('yt_') || req.query.videoId || requestedSource !== 'local') {
             return res.status(400).json({
                 success: false,
                 code: 'DOWNLOAD_UNAVAILABLE',
@@ -1078,111 +1112,37 @@ router.get('/download', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Track id or reference is required for download' });
         }
 
-        // 2. Telegram source
-        if (requestedSource === 'telegram' || requestedSource === 'lossless') {
-            if (!db) return res.status(500).json({ error: 'Database not available' });
+        // 2. Local Upload source
+        if (!db) return res.status(500).json({ error: 'Database not available' });
 
-            let cached = null;
-            try {
-                const stmt = db.prepare(`
-                    SELECT * FROM telegram_tracks 
-                    WHERE id = ? OR file_hash = ? OR telegram_message_id = (SELECT message_id FROM telegram_library_index WHERE id = ?)
-                `);
-                stmt.bind([trackId, trackId, trackId]);
-                if (stmt.step()) {
-                    const cols = stmt.getColumnNames();
-                    const vals = stmt.get();
-                    cached = {};
-                    cols.forEach((c, i) => cached[c] = vals[i]);
-                }
-                stmt.free();
-            } catch (e) {}
-
-            if (!cached || cached.status !== 'READY' || !fs.existsSync(cached.file_path)) {
-                try {
-                    const prep = await telegramProvider.prepareTrack(trackId, db, saveDb);
-                    if (prep.status !== 'READY') {
-                        return res.status(202).json({
-                            success: false,
-                            status: 'PREPARING',
-                            message: 'Track retrieval in progress. Please retry download once ready.',
-                            progress: prep.progress || { progressPercent: 20 }
-                        });
-                    }
-                    const stmt2 = db.prepare('SELECT * FROM telegram_tracks WHERE id = ? OR file_hash = ?');
-                    stmt2.bind([trackId, trackId]);
-                    if (stmt2.step()) {
-                        const cols = stmt2.getColumnNames();
-                        const vals = stmt2.get();
-                        cached = {};
-                        cols.forEach((c, i) => cached[c] = vals[i]);
-                    }
-                    stmt2.free();
-                } catch (pErr) {
-                    return res.status(500).json({ success: false, error: 'Failed to retrieve track for download: ' + pErr.message });
-                }
+        let uploaded = null;
+        try {
+            const stmt = db.prepare('SELECT * FROM uploaded_tracks WHERE id = ?');
+            stmt.bind([trackId]);
+            if (stmt.step()) {
+                const cols = stmt.getColumnNames();
+                const vals = stmt.get();
+                uploaded = {};
+                cols.forEach((c, i) => uploaded[c] = vals[i]);
             }
+            stmt.free();
+        } catch (e) {}
 
-            if (!cached || !fs.existsSync(cached.file_path)) {
-                return res.status(404).json({ success: false, error: 'Track audio file not found on disk' });
-            }
+        if (!uploaded) return res.status(404).json({ success: false, error: 'Uploaded track not found' });
 
-            const trackTitle = title || cached.title || 'Track';
-            const trackArtist = artist || cached.artist || 'Artist';
-            const ext = path.extname(cached.file_path) || ('.' + (cached.format || 'flac').toLowerCase());
-            const downloadFilename = sanitizeDownloadFilename(`${trackArtist} - ${trackTitle}`) + ext;
+        const fullPath = path.join(__dirname, '..', 'uploads', uploaded.file_path);
+        if (!fs.existsSync(fullPath)) return res.status(404).json({ success: false, error: 'File missing from disk' });
 
-            const stat = fs.statSync(cached.file_path);
-            let mimeType = 'audio/flac';
-            if (ext === '.wav') mimeType = 'audio/wav';
-            else if (ext === '.mp3') mimeType = 'audio/mpeg';
-            else if (ext === '.m4a') mimeType = 'audio/mp4';
+        const trackTitle = title || uploaded.title || 'Track';
+        const trackArtist = artist || uploaded.artist || 'Artist';
+        const ext = path.extname(uploaded.file_path) || '.mp3';
+        const downloadFilename = sanitizeDownloadFilename(`${trackArtist} - ${trackTitle}`) + ext;
 
-            res.setHeader('Content-Disposition', `attachment; filename="${downloadFilename.replace(/"/g, '')}"; filename*=UTF-8''${encodeURIComponent(downloadFilename)}`);
-            res.setHeader('Content-Type', mimeType);
-            res.setHeader('Content-Length', stat.size);
-            return fs.createReadStream(cached.file_path).pipe(res);
-        }
-
-        // 3. Local Upload source
-        if (requestedSource === 'local') {
-            if (!db) return res.status(500).json({ error: 'Database not available' });
-
-            let uploaded = null;
-            try {
-                const stmt = db.prepare('SELECT * FROM uploaded_tracks WHERE id = ?');
-                stmt.bind([trackId]);
-                if (stmt.step()) {
-                    const cols = stmt.getColumnNames();
-                    const vals = stmt.get();
-                    uploaded = {};
-                    cols.forEach((c, i) => uploaded[c] = vals[i]);
-                }
-                stmt.free();
-            } catch (e) {}
-
-            if (!uploaded) return res.status(404).json({ success: false, error: 'Uploaded track not found' });
-
-            const fullPath = path.join(__dirname, '..', 'uploads', uploaded.file_path);
-            if (!fs.existsSync(fullPath)) return res.status(404).json({ success: false, error: 'File missing from disk' });
-
-            const trackTitle = title || uploaded.title || 'Track';
-            const trackArtist = artist || uploaded.artist || 'Artist';
-            const ext = path.extname(uploaded.file_path) || '.mp3';
-            const downloadFilename = sanitizeDownloadFilename(`${trackArtist} - ${trackTitle}`) + ext;
-
-            const stat = fs.statSync(fullPath);
-            res.setHeader('Content-Disposition', `attachment; filename="${downloadFilename.replace(/"/g, '')}"; filename*=UTF-8''${encodeURIComponent(downloadFilename)}`);
-            res.setHeader('Content-Type', 'application/octet-stream');
-            res.setHeader('Content-Length', stat.size);
-            return fs.createReadStream(fullPath).pipe(res);
-        }
-
-        return res.status(400).json({
-            success: false,
-            code: 'DOWNLOAD_UNAVAILABLE',
-            message: `Downloads are unavailable for source: ${requestedSource || 'unknown'}`
-        });
+        const stat = fs.statSync(fullPath);
+        res.setHeader('Content-Disposition', `attachment; filename="${downloadFilename.replace(/"/g, '')}"; filename*=UTF-8''${encodeURIComponent(downloadFilename)}`);
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Content-Length', stat.size);
+        return fs.createReadStream(fullPath).pipe(res);
     } catch (err) {
         console.error('[MusicRoutes] Download endpoint error:', err);
         res.status(500).json({ success: false, error: 'Internal server error processing download: ' + err.message });

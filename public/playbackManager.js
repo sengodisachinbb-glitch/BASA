@@ -3,11 +3,10 @@
  * 
  * Central abstraction over YouTube IFrame API and HTML5 Audio.
  * Features:
- * - Multi-source provider routing (YouTube, Telegram FLAC/Hi-Res, Internet Archive, Local files)
+ * - Multi-source provider routing (YouTube, JioSaavn HD, Internet Archive, Local FLAC/Lossless)
  * - Three Playback Modes: AUTO, YOUTUBE, LOSSLESS
- * - Multi-source provider routing (YouTube, Telegram FLAC/Hi-Res, Local files)
  * - Automatic Fast-Start Playback (plays immediately from YouTube/Fast source)
- * - Intelligent Lossless Upgrades (prepares Telegram FLAC in background, seamless crossfade)
+ * - Intelligent Lossless Upgrades (seamless crossfade)
  * - Explicit Candidate Playback (Mode B): user-selected candidates strictly played without falling back
  * - WebSocket Multi-Room Sync integration
  */
@@ -134,7 +133,7 @@ class PlaybackManager {
         const canonicalTrackId = streamData.canonicalTrackId || String(trackKey);
         const sourceId = streamData.sourceId || streamData.id || 'unknown';
         const provider = streamData.provider || streamData.source || 'unknown';
-        const sourceType = streamData.source_type || streamData.sourceType || (streamData.isCached ? 'CACHED_FILE' : (provider === 'local' ? 'LOCAL_FILE' : (provider === 'telegram' ? 'TELEGRAM_FILE' : 'REMOTE_HTTP')));
+        const sourceType = streamData.source_type || streamData.sourceType || (streamData.isCached ? 'CACHED_FILE' : (provider === 'local' ? 'LOCAL_FILE' : 'REMOTE_HTTP'));
         const transport = streamData.playback_transport || streamData.transport || 'PROGRESSIVE';
         const sourceRef = streamData.sourceRef || streamData.audioUrl || streamData.preview || streamData.url || sourceId;
 
@@ -401,7 +400,7 @@ class PlaybackManager {
 
     isHtml5Provider() {
         if (this.provider === 'youtube') return false;
-        return this.provider === 'local' || this.provider === 'telegram' || this.provider === 'lossless' || this.provider === 'jiosaavn' || this.provider === 'archive' || this.provider === 'internet_archive' || Boolean(this.audio?.src);
+        return this.provider === 'local' || this.provider === 'lossless' || this.provider === 'jiosaavn' || this.provider === 'archive' || this.provider === 'internet_archive' || Boolean(this.audio?.src);
     }
 
     setupHTML5Audio(audioElement) {
@@ -605,7 +604,7 @@ class PlaybackManager {
         // 3. Mode: LOSSLESS ONLY
         if (mode === 'LOSSLESS') {
             const losslessCandidates = candidates.filter(c => 
-                (c.isLossless || c.isHiRes || c.format === 'FLAC' || c.source === 'telegram') &&
+                (c.isLossless || c.isHiRes || c.format === 'FLAC') &&
                 this.canPlayCodec(c.format)
             );
 
@@ -627,7 +626,7 @@ class PlaybackManager {
                 return;
             }
 
-            if ((trackData.isLossless || trackData.isHiRes || trackData.source === 'telegram') && this.canPlayCodec(trackData.format)) {
+            if ((trackData.isLossless || trackData.isHiRes) && this.canPlayCodec(trackData.format)) {
                 console.log(`[PlaybackManager] Mode LOSSLESS: track is already lossless`);
                 this._executeDirectLoad(trackData);
                 return;
@@ -702,7 +701,7 @@ class PlaybackManager {
         const source = trackData.source || 'youtube';
 
         let targetProvider = 'youtube';
-        if (source === 'telegram' || source === 'lossless') targetProvider = 'telegram';
+        if (source === 'lossless') targetProvider = 'lossless';
         else if (source === 'archive' || source === 'internet_archive') targetProvider = 'archive';
         else if (source === 'jiosaavn') targetProvider = 'jiosaavn';
         else if (source === 'local' || (trackData.preview && trackData.preview.includes('/api/upload/stream/'))) targetProvider = 'local';
@@ -776,7 +775,7 @@ class PlaybackManager {
         const canonicalKey = (trackData.title || '') + '::' + (trackData.artist || '');
         const pinned = this.getPinnedStream(canonicalKey) || (currentId ? this.getPinnedStream(currentId) : null);
 
-        let streamUrl = trackData.streamUrl || trackData.audioUrl || trackData.preview || (source === 'telegram' ? `/api/telegram/stream/${trackData.id}` : '');
+        let streamUrl = trackData.streamUrl || trackData.audioUrl || trackData.preview || '';
         if (pinned && pinned.url) {
             streamUrl = pinned.url;
         }
@@ -816,56 +815,8 @@ class PlaybackManager {
         // Structured diagnostics logging
         this.logStreamDiagnostics(trackData, pinRecord);
 
-        if (targetProvider === 'telegram' || targetProvider === 'lossless') {
-            this.provider = 'telegram';
-
-            // Check if track is cached or needs on-demand preparation
-            if (trackData.status === 'MISSING' || trackData.isCached === false) {
-                console.log(`[PlaybackManager] Track not cached. Requesting preparation for: ${trackData.title}`);
-                if (typeof showToast === 'function') {
-                    showToast(`✨ Preparing lossless stream for "${trackData.title}"...`, 'info');
-                }
-
-                fetch(`/api/telegram/prepare/${trackData.id}`, { method: 'POST' })
-                    .then(r => r.json())
-                    .then(res => {
-                        if (res.status === 'READY') {
-                            this.audio.src = streamUrl;
-                            this.audio.load();
-                            this.play();
-                        } else {
-                            // Poll until ready
-                            let attempts = 0;
-                            const pollInterval = setInterval(() => {
-                                attempts++;
-                                fetch(`/api/telegram/prepare/${trackData.id}`)
-                                    .then(pr => pr.json())
-                                    .then(pRes => {
-                                        if (pRes.status === 'READY') {
-                                            clearInterval(pollInterval);
-                                            this.audio.src = streamUrl;
-                                            this.audio.load();
-                                            this.play();
-                                        } else if (attempts > 45) {
-                                            clearInterval(pollInterval);
-                                            this.isLoadingTrack = false;
-                                            this.setPlayerState('ERROR');
-                                            if (this.onError) this.onError('Lossless stream timed out.');
-                                        }
-                                    }).catch(() => {
-                                        clearInterval(pollInterval);
-                                        this.isLoadingTrack = false;
-                                    });
-                            }, 1500);
-                        }
-                    }).catch(err => {
-                        this.isLoadingTrack = false;
-                        this.setPlayerState('ERROR');
-                        if (this.onError) this.onError('Failed to load lossless stream: ' + err.message);
-                    });
-                return;
-            }
-
+        if (targetProvider === 'lossless') {
+            this.provider = 'lossless';
             try { this.audio.crossOrigin = 'anonymous'; } catch (e) {}
             this.audio.src = streamUrl;
             this.audio.load();
@@ -979,74 +930,12 @@ class PlaybackManager {
             }
         }, LOSSLESS_UPGRADE_TIMEOUT_MS);
 
-        const streamUrl = targetCandidate.audioUrl || targetCandidate.preview || `/api/telegram/stream/${targetCandidate.id}`;
+        const streamUrl = targetCandidate.audioUrl || targetCandidate.preview || targetCandidate.url;
 
-        // If target candidate is already cached or ready
-        if (targetCandidate.isCached === true || targetCandidate.status === 'READY') {
+        // If target candidate streamUrl is available, execute seamless upgrade
+        if (streamUrl) {
             this.executeSeamlessUpgrade(targetCandidate, streamUrl, currentSession);
             return;
-        }
-
-        // If Telegram track requires on-demand retrieval
-        if (targetCandidate.source === 'telegram') {
-            console.log(`[PlaybackManager] Triggering background retrieval for upgrade candidate: ${targetCandidate.title}`);
-
-            fetch(`/api/telegram/prepare/${targetCandidate.id}`, { method: 'POST' })
-                .then(r => r.json())
-                .then(res => {
-                    if (this.upgradeSessionId !== currentSession) return;
-
-                    if (res.status === 'READY') {
-                        this.executeSeamlessUpgrade(targetCandidate, streamUrl, currentSession);
-                        return;
-                    }
-
-                    // Poll status in background
-                    let attempts = 0;
-                    this.upgradePollTimer = setInterval(() => {
-                        attempts++;
-
-                        // Stop if session or track changed
-                        if (this.upgradeSessionId !== currentSession || !this.pendingUpgradeCandidate || this.pendingUpgradeCandidate.id !== targetCandidate.id) {
-                            clearInterval(this.upgradePollTimer);
-                            this.upgradePollTimer = null;
-                            return;
-                        }
-
-                        fetch(`/api/telegram/prepare/${targetCandidate.id}`)
-                            .then(pr => pr.json())
-                            .then(pRes => {
-                                if (this.upgradeSessionId !== currentSession) {
-                                    clearInterval(this.upgradePollTimer);
-                                    this.upgradePollTimer = null;
-                                    return;
-                                }
-
-                                if (pRes.status === 'READY') {
-                                    clearInterval(this.upgradePollTimer);
-                                    this.upgradePollTimer = null;
-                                    this.executeSeamlessUpgrade(targetCandidate, streamUrl, currentSession);
-                                } else if (attempts > 30) {
-                                    console.warn('[PlaybackManager] Background upgrade poll limit reached. Remaining on fast source.');
-                                    clearInterval(this.upgradePollTimer);
-                                    this.upgradePollTimer = null;
-                                    this.setPlayerState('PLAYING_FAST_SOURCE');
-                                    if (this.onUpgradeStatusChange) this.onUpgradeStatusChange('failed', null);
-                                }
-                            }).catch(() => {
-                                clearInterval(this.upgradePollTimer);
-                                this.upgradePollTimer = null;
-                                this.setPlayerState('PLAYING_FAST_SOURCE');
-                                if (this.onUpgradeStatusChange) this.onUpgradeStatusChange('failed', null);
-                            });
-                    }, 1500);
-                }).catch(err => {
-                    console.warn('[PlaybackManager] Background upgrade request failed:', err.message);
-                    if (this.upgradeSessionId === currentSession) {
-                        this.setPlayerState('PLAYING_FAST_SOURCE');
-                        if (this.onUpgradeStatusChange) this.onUpgradeStatusChange('failed', null);
-                    }
-                });
         }
     }
 
@@ -1127,7 +1016,7 @@ class PlaybackManager {
                 this.upgradeAudio = null;
 
                 // Update provider & track metadata to lossless/hi-res
-                this.provider = (targetCandidate.source === 'telegram' || targetCandidate.source === 'lossless') ? 'lossless' : targetCandidate.source;
+                this.provider = targetCandidate.source || 'lossless';
                 this.currentTrack = {
                     ...this.currentTrack,
                     ...targetCandidate,
@@ -1277,8 +1166,7 @@ class PlaybackManager {
         this.isExplicitSelection = options.explicit !== false;
 
         // 5. Seamless upgrade/switch if currently playing HTML5 audio, or direct load
-        const streamUrl = targetCandidate.audioUrl || targetCandidate.preview || targetCandidate.url || 
-            (targetCandidate.source === 'telegram' ? `/api/telegram/stream/${targetCandidate.id}` : null);
+        const streamUrl = targetCandidate.audioUrl || targetCandidate.preview || targetCandidate.url || null;
 
         if (streamUrl && this.isPlaying && this.isHtml5Provider()) {
             this.executeSeamlessUpgrade(targetCandidate, streamUrl, ++this.upgradeSessionCounter);

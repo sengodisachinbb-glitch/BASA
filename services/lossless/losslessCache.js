@@ -63,7 +63,7 @@ class LosslessCache {
 
     /**
      * Lists cached entries with filtering.
-     * filter: 'all' | 'hires' | 'lossless' | 'recent' | 'telegram' | 'local'
+     * filter: 'all' | 'hires' | 'lossless' | 'recent' | 'local'
      */
     getCacheList(filter = 'all', db) {
         if (!db) return [];
@@ -75,8 +75,6 @@ class LosslessCache {
                 sql += ` WHERE quality_class = 'HI_RES_LOSSLESS' AND verification_status IN ('VERIFIED', 'VERIFIED_FLAC')`;
             } else if (filter === 'lossless') {
                 sql += ` WHERE quality_class = 'LOSSLESS' AND verification_status IN ('VERIFIED', 'VERIFIED_FLAC')`;
-            } else if (filter === 'telegram') {
-                sql += ` WHERE provider = 'telegram' AND verification_status IN ('VERIFIED', 'VERIFIED_FLAC')`;
             } else if (filter === 'local') {
                 sql += ` WHERE provider = 'local' AND verification_status IN ('VERIFIED', 'VERIFIED_FLAC')`;
             } else {
@@ -260,9 +258,9 @@ class LosslessCache {
             const isUserUpload = entry.provider === 'local' || (entry.local_path && entry.local_path.includes('uploads/tracks'));
             if (!isUserUpload && entry.local_path && fs.existsSync(entry.local_path)) {
                 try {
-                    // Only unlink if inside lossless_cache or telegram uploads
+                    // Only unlink if inside lossless_cache
                     const normalized = path.normalize(entry.local_path);
-                    if (normalized.includes('lossless_cache') || normalized.includes('telegram')) {
+                    if (normalized.includes('lossless_cache')) {
                         fs.unlinkSync(entry.local_path);
                     }
                 } catch (err) {

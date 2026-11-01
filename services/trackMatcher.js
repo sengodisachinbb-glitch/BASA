@@ -255,7 +255,7 @@ class TrackMatcher {
      * Groups raw candidate tracks from providers into unified Canonical Tracks with version preservation.
      * Each canonical track contains:
      * - `.candidates` array holding normalized provider candidates
-     * - `.availableSources` array summarizing distinct sources (YouTube, Telegram, Archive, Local)
+     * - `.availableSources` array summarizing distinct sources (YouTube, JioSaavn, Archive, Local)
      * - `.recordingVersion` indicating version (Original, Live, Remix, etc.)
      * - `.isOfficial` and `.isOriginal` classification flags
      */
