@@ -132,6 +132,12 @@ async function api(endpoint, options = {}) {
     return data;
 }
 
+// Stage 3B.1: Offline Client Mutation Outbox instance
+if (typeof window !== 'undefined' && typeof SyncOutbox !== 'undefined') {
+    window.basaSyncOutbox = new SyncOutbox();
+    window.basaSyncOutbox.init().catch(err => console.warn('[SyncOutbox] Init notice:', err.message));
+}
+
 // 3. TOAST NOTIFICATIONS
 let lastToastMsg = '';
 let lastToastTime = 0;
@@ -3832,6 +3838,29 @@ async function toggleLike(trackId, source, encodedData) {
     const trackData = JSON.parse(decodeURIComponent(encodedData));
     const isLiked = state.likedTrackIds.has(String(trackId));
 
+    // Offline optimistic queueing if client is disconnected
+    if (typeof navigator !== 'undefined' && !navigator.onLine && window.basaSyncOutbox) {
+        try {
+            await window.basaSyncOutbox.queueMutation(isLiked ? 'UNLIKE_TRACK' : 'LIKE_TRACK', {
+                track_id: String(trackId),
+                track_source: source,
+                track_data: trackData
+            });
+            if (isLiked) {
+                state.likedTrackIds.delete(String(trackId));
+                showToast('Removed from likes (offline queued 📶)');
+            } else {
+                state.likedTrackIds.add(String(trackId));
+                showToast('Added to likes (offline queued 📶)', 'success');
+            }
+            updatePlayerLikeButton();
+            if (state.currentView === 'library') loadLibrary();
+            return;
+        } catch (queueErr) {
+            console.warn('[SyncOutbox] Failed to queue offline mutation:', queueErr);
+        }
+    }
+
     try {
         if (isLiked) {
             await api(`/library/like/${trackId}?source=${source}`, { method: 'DELETE' });
@@ -3864,6 +3893,18 @@ async function toggleLike(trackId, source, encodedData) {
         // Refresh library view if active
         if (state.currentView === 'library') loadLibrary();
     } catch (err) {
+        // Fallback to outbox on transient network errors
+        if ((err.message.includes('fetch') || err.message.includes('network') || err.message.includes('failed')) && window.basaSyncOutbox) {
+            try {
+                await window.basaSyncOutbox.queueMutation(isLiked ? 'UNLIKE_TRACK' : 'LIKE_TRACK', {
+                    track_id: String(trackId),
+                    track_source: source,
+                    track_data: trackData
+                });
+                showToast('Network error: Queued change to sync later 📶', 'info');
+                return;
+            } catch (queueErr) {}
+        }
         showToast(err.message, 'error');
     }
 }

@@ -26,6 +26,7 @@
     "yt-search": "^2.13.1"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.14"
+    "@electric-sql/pglite": "^0.5.14",
+    "fake-indexeddb": "^6.2.7"
   }
 }
