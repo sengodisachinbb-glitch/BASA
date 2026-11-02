@@ -56,27 +56,51 @@ class LocalLibrary {
     /**
      * Classifies media non-destructively: MUSIC, VOICE_NOTE, or RECORDING
      */
-    classifyMedia(metadata, filename = '') {
-        const title = (metadata.title || filename).toLowerCase();
-        const duration = Number(metadata.duration) || 0;
-        const codec = (metadata.codec || '').toUpperCase();
-        const isLossless = metadata.isLossless || ['FLAC', 'ALAC', 'WAV'].includes(codec);
+    classifyMedia(metadata = {}, filename = '') {
+        const titleStr = String(metadata?.title || '').trim().toLowerCase();
+        const fileStr = String(filename || '').trim().toLowerCase();
+        const combined = `${titleStr} ${fileStr}`.trim();
+        const duration = Number(metadata?.duration) || 0;
+        const codec = String(metadata?.codec || '').toUpperCase();
+        const hasArtist = Boolean(metadata?.artist && metadata.artist !== 'Unknown Artist' && metadata.artist.trim() !== '');
+        const isLossless = Boolean(metadata?.isLossless) || ['FLAC', 'ALAC', 'WAV'].includes(codec);
 
+        // 1. Lossless audiophile codecs (FLAC, ALAC, WAV) are strictly MUSIC
         if (isLossless) return 'MUSIC';
-        if (duration >= 30) return 'MUSIC';
 
-        if (title.startsWith('ptt-') || title.startsWith('aud-') || title.includes('voice')) {
-            if (duration < 120) return 'VOICE_NOTE';
+        // 2. Detect Voice Note patterns (WhatsApp ptt/aud, Telegram voice notes, Voice Memo files)
+        // Tested before general duration >= 30 check so voice notes (typically 10s-120s) are not captured as music
+        const isExplicitVoiceNote = 
+            titleStr.startsWith('ptt-') || fileStr.startsWith('ptt-') ||
+            titleStr.startsWith('aud-') || fileStr.startsWith('aud-') ||
+            /\b(voice[-_\s]?note|voice[-_\s]?message|voice[-_\s]?memo|ptt)\b/i.test(combined) ||
+            /^(voice|audiomessage)[-_\s0-9]/i.test(titleStr) ||
+            /^(voice|audiomessage)[-_\s0-9]/i.test(fileStr);
+
+        if (isExplicitVoiceNote && duration < 300) {
+            return 'VOICE_NOTE';
         }
 
-        if (title.startsWith('rec') || title.includes('recording')) {
-            if (duration < 300) return 'RECORDING';
+        // 3. Detect Recording patterns (e.g. REC001, Call Recording, Sound Record)
+        const isRecording = 
+            titleStr.startsWith('rec') || fileStr.startsWith('rec') ||
+            /\b(recording|call[-_\s]?rec|sound[-_\s]?rec)\b/i.test(combined);
+
+        if (isRecording && duration < 1800) {
+            return 'RECORDING';
         }
 
-        if (metadata.artist && metadata.artist !== 'Unknown Artist') {
+        // 4. If tagged with a known artist, it's MUSIC
+        if (hasArtist) {
             return 'MUSIC';
         }
 
+        // 5. Standard duration-based classification for songs (30 seconds or longer)
+        if (duration >= 30) {
+            return 'MUSIC';
+        }
+
+        // 6. Short musical tracks/intros/jingles (15 to 29 seconds)
         return duration >= 15 ? 'MUSIC' : 'UNKNOWN';
     }
 

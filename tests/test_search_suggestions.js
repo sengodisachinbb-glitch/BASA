@@ -3,7 +3,7 @@
  */
 const assert = require('assert');
 
-// Mock localStorage
+// Lightweight Browser Global Shims for Production script.js in Node
 const mockStorage = new Map();
 global.localStorage = {
     getItem: (key) => (mockStorage.has(key) ? mockStorage.get(key) : null),
@@ -11,14 +11,27 @@ global.localStorage = {
     removeItem: (key) => mockStorage.delete(key),
     clear: () => mockStorage.clear()
 };
-
-// Mock DOM
+global.window = global;
+global.window.addEventListener = () => {};
 global.document = {
     activeElement: { tagName: 'BODY', isContentEditable: false },
     getElementById: (id) => null,
+    querySelector: () => null,
+    querySelectorAll: () => [],
     addEventListener: () => {}
 };
 global.navigator = { platform: 'Win32', userAgent: 'Windows' };
+global.location = { hash: '' };
+global.Audio = class {};
+
+// Import production implementations directly from public/script.js
+const {
+    getRecentSearches,
+    saveRecentSearch,
+    removeRecentSearch,
+    clearAllRecentSearches,
+    formatSuggestions
+} = require('../public/script.js');
 
 console.log('======================================================');
 console.log('   SPOTIFY SEARCH SUGGESTIONS & RECENTS TEST SUITE    ');
@@ -37,96 +50,9 @@ function test(name, fn) {
     }
 }
 
-const RECENT_KEY = 'basa_recent_searches';
-
-function getRecentSearches() {
-    try {
-        const raw = localStorage.getItem(RECENT_KEY);
-        if (raw) {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-        }
-        return [];
-    } catch (e) {
-        return [];
-    }
-}
-
-function saveRecentSearch(item) {
-    if (!item || !item.title) return;
-    let list = getRecentSearches();
-    list = list.filter(x => {
-        if (item.id && x.id === item.id) return false;
-        if (x.title && x.title.toLowerCase() === item.title.toLowerCase() && x.type === item.type) return false;
-        return true;
-    });
-    list.unshift(item);
-    if (list.length > 12) list = list.slice(0, 12);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(list));
-}
-
-function removeRecentSearch(itemId) {
-    let list = getRecentSearches();
-    list = list.filter(x => x.id !== itemId);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(list));
-}
-
-function clearAllRecentSearches() {
-    localStorage.setItem(RECENT_KEY, JSON.stringify([]));
-}
-
-function formatSuggestions(tracks, query) {
-    const suggestions = [];
-    const qLower = query.toLowerCase().trim();
-
-    // Artist candidate
-    const artistCandidate = tracks.find(t => {
-        const a = (t.artist || '').toLowerCase();
-        return a === qLower || a.includes(qLower) || qLower.includes(a);
-    });
-
-    if (artistCandidate && artistCandidate.artist) {
-        suggestions.push({
-            id: 'artist_' + encodeURIComponent(artistCandidate.artist),
-            title: artistCandidate.artist,
-            artist: 'Artist',
-            cover: artistCandidate.thumbnail || '/logo-mark.png',
-            type: 'artist',
-            verified: true
-        });
-    }
-
-    // Top song entries
-    tracks.slice(0, 6).forEach((t, i) => {
-        suggestions.push({
-            id: t.id || ('sugg_' + i),
-            title: t.title,
-            artist: t.artist,
-            cover: t.thumbnail || '/logo-mark.png',
-            type: 'song',
-            explicit: !!t.explicit,
-            isVideo: !!t.isVideo,
-            rawTrack: t
-        });
-
-        if (t.album && t.album.toLowerCase() !== t.title.toLowerCase() && suggestions.filter(s => s.type === 'album').length === 0) {
-            suggestions.push({
-                id: 'album_' + encodeURIComponent(t.album),
-                title: t.album,
-                artist: t.artist,
-                cover: t.thumbnail || '/logo-mark.png',
-                type: 'album',
-                explicit: false
-            });
-        }
-    });
-
-    return suggestions;
-}
-
 // 1. Storage & Persistence
 test('Recent searches persist and retrieve from localStorage', () => {
-    localStorage.clear();
+    clearAllRecentSearches();
     saveRecentSearch({ id: 'song_1', title: 'Around Me', artist: 'Metro Boomin', type: 'song' });
     const recents = getRecentSearches();
     assert.strictEqual(recents.length, 1);

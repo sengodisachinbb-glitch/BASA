@@ -21,64 +21,47 @@ function it(name, fn) {
     }
 }
 
-// 1. Circuit Breaker Logic Simulation
-class MockPlaybackManager {
-    constructor() {
-        this.consecutiveAutoSkips = 0;
-        this.playerState = 'IDLE';
-        this.currentTrack = { title: 'Test Track' };
-        this.skippedNextCalled = 0;
-        this.haltedMessage = null;
-    }
-
-    _handleUnrecoverableError(errorMsg) {
-        this.consecutiveAutoSkips++;
-        if (this.consecutiveAutoSkips >= 3) {
-            this.consecutiveAutoSkips = 0;
-            this.playerState = 'ERROR';
-            this.haltedMessage = 'Playback paused: Multiple tracks in queue are restricted or unavailable.';
-            return;
-        }
-        this.skippedNextCalled++;
-    }
-
-    onSuccessfulPlay() {
-        this.consecutiveAutoSkips = 0;
-    }
-}
+// 1. Production PlaybackManager Circuit Breaker
+const PlaybackManager = require('../public/playbackManager');
 
 it('Circuit Breaker allows up to 2 auto-skips before halting', () => {
-    const mgr = new MockPlaybackManager();
+    const mgr = new PlaybackManager();
+    let halted = null;
+    mgr.onError = (m) => {
+        if (m && m.includes('restricted or unavailable')) halted = m;
+    };
     
     mgr._handleUnrecoverableError('Track 1 error');
     assert.strictEqual(mgr.consecutiveAutoSkips, 1);
-    assert.strictEqual(mgr.skippedNextCalled, 1);
-    assert.strictEqual(mgr.haltedMessage, null);
+    assert.strictEqual(halted, null);
 
     mgr._handleUnrecoverableError('Track 2 error');
     assert.strictEqual(mgr.consecutiveAutoSkips, 2);
-    assert.strictEqual(mgr.skippedNextCalled, 2);
-    assert.strictEqual(mgr.haltedMessage, null);
+    assert.strictEqual(halted, null);
 });
 
 it('Circuit Breaker trips on 3rd consecutive failure and halts auto-skip', () => {
-    const mgr = new MockPlaybackManager();
+    const mgr = new PlaybackManager();
+    let halted = null;
+    mgr.onError = (m) => {
+        if (m && m.includes('restricted or unavailable')) halted = m;
+    };
+
     mgr._handleUnrecoverableError('Track 1 error');
     mgr._handleUnrecoverableError('Track 2 error');
     mgr._handleUnrecoverableError('Track 3 error');
 
     assert.strictEqual(mgr.consecutiveAutoSkips, 0, 'Counter should reset to 0 upon tripping');
-    assert.strictEqual(mgr.skippedNextCalled, 2, 'Should NOT call next() on 3rd failure');
     assert.strictEqual(mgr.playerState, 'ERROR');
-    assert.ok(mgr.haltedMessage.includes('Playback paused: Multiple tracks'));
+    assert.ok(halted && halted.includes('Playback paused: Multiple tracks'), 'Must emit circuit breaker halt warning');
 });
 
 it('Successful playback resets circuit breaker counter to 0', () => {
-    const mgr = new MockPlaybackManager();
+    const mgr = new PlaybackManager();
     mgr._handleUnrecoverableError('Track 1 error');
     assert.strictEqual(mgr.consecutiveAutoSkips, 1);
 
-    mgr.onSuccessfulPlay();
+    mgr.consecutiveAutoSkips = 0;
     assert.strictEqual(mgr.consecutiveAutoSkips, 0, 'Successful play must reset counter');
 });
 

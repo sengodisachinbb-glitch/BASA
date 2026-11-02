@@ -424,9 +424,9 @@ const DEFAULT_SPOTIFY_RECENT_SEARCHES = [
 function getRecentSearches() {
     try {
         const raw = localStorage.getItem(RECENT_SEARCHES_STORAGE_KEY);
-        if (raw) {
+        if (raw !== null) {
             const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            if (Array.isArray(parsed)) return parsed;
         }
         localStorage.setItem(RECENT_SEARCHES_STORAGE_KEY, JSON.stringify(DEFAULT_SPOTIFY_RECENT_SEARCHES));
         return DEFAULT_SPOTIFY_RECENT_SEARCHES;
@@ -620,27 +620,10 @@ async function fetchSearchSuggestions(query) {
     }
 }
 
-function renderSuggestionsDropdown(tracks, query) {
-    const dropdown = document.getElementById('search-suggestions-dropdown');
-    if (!dropdown) return;
-
-    if (!tracks || tracks.length === 0) {
-        dropdown.innerHTML = `
-            <div class="sp-sugg-header">
-                <span class="sp-sugg-title">Suggestions</span>
-            </div>
-            <div class="sp-sugg-empty">
-                <div class="sp-sugg-empty-title">No direct suggestions for "${escapeHtml(query)}"</div>
-                <div class="sp-sugg-tip">Press Enter to perform a deep multi-source search</div>
-            </div>
-        `;
-        currentSuggestionsList = [];
-        searchSuggestionsSelectedIndex = -1;
-        return;
-    }
-
+function formatSuggestions(tracks, query) {
+    if (!tracks || !Array.isArray(tracks)) return [];
     const suggestions = [];
-    const qLower = query.toLowerCase().trim();
+    const qLower = (query || '').toLowerCase().trim();
 
     // 1. Check if the query matches an artist in the results
     const artistCandidate = tracks.find(t => {
@@ -661,11 +644,11 @@ function renderSuggestionsDropdown(tracks, query) {
 
     // 2. Add top matching song entries
     tracks.slice(0, 6).forEach((t, i) => {
-        const cleaned = cleanMusicTitle(t.title, t.artist);
+        const cleaned = typeof cleanMusicTitle === 'function' ? cleanMusicTitle(t.title, t.artist) : { title: t.title, artist: t.artist, explicit: !!t.explicit };
         suggestions.push({
             id: t.id || t.videoId || ('sugg_' + i),
-            title: cleaned.title,
-            artist: cleaned.artist,
+            title: cleaned.title || t.title,
+            artist: cleaned.artist || t.artist,
             cover: t.thumbnail || t.cover || '/logo-mark.png',
             type: 'song',
             explicit: cleaned.explicit || !!t.explicit,
@@ -674,11 +657,11 @@ function renderSuggestionsDropdown(tracks, query) {
         });
 
         // 3. If an album is identified and distinct from song title, add Album entry
-        if (t.album && t.album.toLowerCase() !== cleaned.title.toLowerCase() && suggestions.filter(s => s.type === 'album').length === 0) {
+        if (t.album && t.album.toLowerCase() !== (cleaned.title || t.title).toLowerCase() && suggestions.filter(s => s.type === 'album').length === 0) {
             suggestions.push({
                 id: 'album_' + encodeURIComponent(t.album),
                 title: t.album,
-                artist: cleaned.artist,
+                artist: cleaned.artist || t.artist,
                 cover: t.thumbnail || t.cover || '/logo-mark.png',
                 type: 'album',
                 explicit: false
@@ -686,6 +669,29 @@ function renderSuggestionsDropdown(tracks, query) {
         }
     });
 
+    return suggestions;
+}
+
+function renderSuggestionsDropdown(tracks, query) {
+    const dropdown = document.getElementById('search-suggestions-dropdown');
+    if (!dropdown) return;
+
+    if (!tracks || tracks.length === 0) {
+        dropdown.innerHTML = `
+            <div class="sp-sugg-header">
+                <span class="sp-sugg-title">Suggestions</span>
+            </div>
+            <div class="sp-sugg-empty">
+                <div class="sp-sugg-empty-title">No direct suggestions for "${escapeHtml(query)}"</div>
+                <div class="sp-sugg-tip">Press Enter to perform a deep multi-source search</div>
+            </div>
+        `;
+        currentSuggestionsList = [];
+        searchSuggestionsSelectedIndex = -1;
+        return;
+    }
+
+    const suggestions = formatSuggestions(tracks, query);
     currentSuggestionsList = suggestions;
     searchSuggestionsSelectedIndex = -1;
 
@@ -6974,3 +6980,13 @@ window.openArtistModal = openArtistModal;
 window.closeArtistModal = closeArtistModal;
 window.openAlbumModal = openAlbumModal;
 window.closeAlbumModal = closeAlbumModal;
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        getRecentSearches,
+        saveRecentSearch,
+        removeRecentSearch,
+        clearAllRecentSearches,
+        formatSuggestions
+    };
+}
