@@ -6468,8 +6468,8 @@ window.closePwaInstallModal = closePwaInstallModal;
 async function exploreMoodStation(moodQuery) {
     showToast(`Starting ${moodQuery} Station...`, 'info');
     try {
-        const data = await api(`/search?q=${encodeURIComponent(moodQuery)}`);
-        const tracks = data.tracks || [];
+        const data = await api(`/music/search?q=${encodeURIComponent(moodQuery)}`);
+        const tracks = data.data || data.tracks || [];
         if (tracks.length > 0) {
             playFromList(tracks, 0, `${moodQuery} Station`);
         } else {
@@ -6486,8 +6486,8 @@ async function loadExploreTrending() {
     grid.innerHTML = '<div class="grid-skeleton">Loading trending hits...</div>';
 
     try {
-        const data = await api('/search?q=Trending Tamil Hits 2026');
-        const tracks = data.tracks || [];
+        const data = await api('/music/search?q=Trending Tamil Hits 2026');
+        const tracks = data.data || data.tracks || [];
         if (tracks.length > 0) {
             window.currentExploreTracks = tracks;
             grid.innerHTML = tracks.slice(0, 12).map((t, idx) => 
@@ -6890,8 +6890,8 @@ async function openArtistModal(artistName, artistImg = null) {
     }
 
     try {
-        const data = await api(`/search?q=${encodeURIComponent(artistName)}`);
-        const tracks = data.tracks || [];
+        const data = await api(`/music/search?q=${encodeURIComponent(artistName)}`);
+        const tracks = data.data || data.tracks || [];
         if (tracks.length > 0) {
             tracksContainer.innerHTML = tracks.slice(0, 15).map((t, idx) =>
                 renderTrackListItem(t, idx, t.source || 'youtube', { contextType: 'artist', contextName: artistName })
@@ -6933,8 +6933,8 @@ async function openAlbumModal(albumTitle, artistName = '', albumImg = null) {
 
     try {
         const query = `${albumTitle} ${artistName || ''}`.trim();
-        const data = await api(`/search?q=${encodeURIComponent(query)}`);
-        const tracks = data.tracks || [];
+        const data = await api(`/music/search?q=${encodeURIComponent(query)}`);
+        const tracks = data.data || data.tracks || [];
 
         if (playAllBtn) {
             playAllBtn.onclick = () => {

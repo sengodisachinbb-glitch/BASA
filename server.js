@@ -153,6 +153,10 @@ app.use(async (req, res, next) => {
 });
 
 // --- API Routes ---
+app.use('/api/search', (req, res, next) => {
+    req.url = req.url === '/' ? '' : req.url;
+    require('./routes/music')(req, res, next);
+});
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/music', require('./routes/music'));
 app.use('/api/playlists', require('./routes/playlists'));
