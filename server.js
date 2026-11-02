@@ -5,14 +5,21 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const initSqlJs = require('sql.js');
-const setupSyncRoomManager = require('./syncRoomManager');
 
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
+const isVercel = Boolean(process.env.VERCEL);
 
-// Setup WebSocket Sync Manager
-setupSyncRoomManager(server);
+// Setup WebSocket Sync Manager only when running locally (not on Vercel serverless)
+if (!isVercel) {
+    try {
+        const setupSyncRoomManager = require('./syncRoomManager');
+        setupSyncRoomManager(server);
+    } catch (e) {
+        console.warn('[Sync] WebSocket sync manager skipped:', e.message);
+    }
+}
 
 // --- Middleware ---
 app.use(cors());
@@ -22,254 +29,171 @@ app.use(express.urlencoded({ extended: true }));
 // Static files from public directory
 app.use(express.static(path.join(__dirname, 'public')));
 
-// BASA 2.0 Listen Together clock calibration endpoint
+// BASA 2.0 clock calibration endpoint
 app.get('/api/time', (req, res) => {
     res.json({ time: Date.now() });
 });
 
 // --- Storage & Database Setup ---
-const isVercel = Boolean(process.env.VERCEL);
 const baseStorageDir = isVercel ? '/tmp' : __dirname;
-
 const dbDir = path.join(baseStorageDir, 'database');
-if (!fs.existsSync(dbDir)) {
-    try { fs.mkdirSync(dbDir, { recursive: true }); } catch (e) {}
-}
-
 const uploadsDir = path.join(baseStorageDir, 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-    try { fs.mkdirSync(uploadsDir, { recursive: true }); } catch (e) {}
-}
-
 const losslessCacheDir = path.join(uploadsDir, 'lossless_cache');
-if (!fs.existsSync(losslessCacheDir)) {
-    try { fs.mkdirSync(losslessCacheDir, { recursive: true }); } catch (e) {}
-}
+
+try { fs.mkdirSync(dbDir, { recursive: true }); } catch (e) {}
+try { fs.mkdirSync(uploadsDir, { recursive: true }); } catch (e) {}
+try { fs.mkdirSync(losslessCacheDir, { recursive: true }); } catch (e) {}
 
 const DB_PATH = path.join(dbDir, 'liquid_music.db');
 
-async function startServer() {
-    // Initialize sql.js
-    const SQL = await initSqlJs();
+let dbInstance = null;
+let dbInitPromise = null;
 
-    let db;
-    if (fs.existsSync(DB_PATH)) {
-        const fileBuffer = fs.readFileSync(DB_PATH);
-        db = new SQL.Database(fileBuffer);
-    } else {
-        db = new SQL.Database();
-    }
+async function getDatabase() {
+    if (dbInstance) return dbInstance;
+    if (dbInitPromise) return dbInitPromise;
 
-    // Run schema from repository source directory
-    const schema = fs.readFileSync(path.join(__dirname, 'database', 'schema.sql'), 'utf-8');
-    db.run(schema);
-
-    // Run migrations for existing DBs
-    try {
-        const tableInfo = db.exec("PRAGMA table_info(uploaded_tracks)");
-        if (tableInfo.length > 0) {
-            const columns = tableInfo[0].values.map(col => col[1]);
-            if (!columns.includes('format')) {
-                db.run("ALTER TABLE uploaded_tracks ADD COLUMN format TEXT DEFAULT NULL");
-                db.run("ALTER TABLE uploaded_tracks ADD COLUMN codec TEXT DEFAULT NULL");
-                db.run("ALTER TABLE uploaded_tracks ADD COLUMN quality TEXT DEFAULT 'UNKNOWN'");
-                db.run("ALTER TABLE uploaded_tracks ADD COLUMN lossless BOOLEAN DEFAULT 0");
-                db.run("ALTER TABLE uploaded_tracks ADD COLUMN sampleRate INTEGER DEFAULT NULL");
-                db.run("ALTER TABLE uploaded_tracks ADD COLUMN bitDepth INTEGER DEFAULT NULL");
-                db.run("ALTER TABLE uploaded_tracks ADD COLUMN bitrate INTEGER DEFAULT NULL");
-                db.run("ALTER TABLE uploaded_tracks ADD COLUMN channels INTEGER DEFAULT NULL");
-                console.log("[Migration] Added quality metadata columns to uploaded_tracks.");
-            }
-            if (!columns.includes('classification')) {
-                db.run("ALTER TABLE uploaded_tracks ADD COLUMN classification TEXT DEFAULT 'UNKNOWN'");
-                db.run("ALTER TABLE uploaded_tracks ADD COLUMN is_music BOOLEAN DEFAULT 1");
-                console.log("[Migration] Added classification and is_music columns to uploaded_tracks.");
-            }
-        }
-
-        // Migrate tables to support 'archive' and 'jiosaavn' track_source
-        const tablesToMigrate = ['playlist_tracks', 'liked_tracks', 'play_history'];
-        for (const table of tablesToMigrate) {
-            const tableDef = db.exec(`SELECT sql FROM sqlite_master WHERE type='table' AND name='${table}'`);
-            if (tableDef.length > 0 && tableDef[0].values.length > 0) {
-                const sql = tableDef[0].values[0][0];
-                if (sql && (!sql.includes("'archive'") || !sql.includes("'jiosaavn'"))) {
-                    console.log(`[Migration] Migrating ${table} to support 'archive', 'jiosaavn' track_source...`);
-                    if (table === 'playlist_tracks') {
-                        db.run(`
-                            CREATE TABLE playlist_tracks_new (
-                                id TEXT PRIMARY KEY,
-                                playlist_id TEXT NOT NULL,
-                                track_id TEXT NOT NULL,
-                                track_source TEXT NOT NULL CHECK(track_source IN ('audius', 'local', 'youtube', 'archive', 'jiosaavn')),
-                                track_data_json TEXT NOT NULL,
-                                position INTEGER NOT NULL DEFAULT 0,
-                                added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                                FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
-                            );
-                            INSERT INTO playlist_tracks_new SELECT * FROM playlist_tracks;
-                            DROP TABLE playlist_tracks;
-                            ALTER TABLE playlist_tracks_new RENAME TO playlist_tracks;
-                            CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist ON playlist_tracks(playlist_id);
-                        `);
-                    } else if (table === 'liked_tracks') {
-                        db.run(`
-                            CREATE TABLE liked_tracks_new (
-                                id TEXT PRIMARY KEY,
-                                user_id TEXT NOT NULL,
-                                track_id TEXT NOT NULL,
-                                track_source TEXT NOT NULL CHECK(track_source IN ('audius', 'local', 'youtube', 'archive', 'jiosaavn')),
-                                track_data_json TEXT NOT NULL,
-                                liked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                                UNIQUE(user_id, track_id, track_source)
-                            );
-                            INSERT INTO liked_tracks_new SELECT * FROM liked_tracks;
-                            DROP TABLE liked_tracks;
-                            ALTER TABLE liked_tracks_new RENAME TO liked_tracks;
-                            CREATE INDEX IF NOT EXISTS idx_liked_tracks_user ON liked_tracks(user_id);
-                        `);
-                    } else if (table === 'play_history') {
-                        db.run(`
-                            CREATE TABLE play_history_new (
-                                id TEXT PRIMARY KEY,
-                                user_id TEXT NOT NULL,
-                                track_id TEXT NOT NULL,
-                                track_source TEXT NOT NULL CHECK(track_source IN ('audius', 'local', 'youtube', 'archive', 'jiosaavn')),
-                                track_data_json TEXT NOT NULL,
-                                played_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                            );
-                            INSERT INTO play_history_new SELECT * FROM play_history;
-                            DROP TABLE play_history;
-                            ALTER TABLE play_history_new RENAME TO play_history;
-                            CREATE INDEX IF NOT EXISTS idx_play_history_user ON play_history(user_id, played_at DESC);
-                        `);
-                    }
-                    console.log(`[Migration] Migrated ${table} successfully.`);
-                }
-            }
-        }
-
-        // Ensure lossless_sources table and schema exist
-        db.run(`
-            CREATE TABLE IF NOT EXISTS lossless_sources (
-                id TEXT PRIMARY KEY,
-                canonical_track_id TEXT NOT NULL,
-                provider TEXT NOT NULL,
-                provider_track_id TEXT DEFAULT NULL,
-                title TEXT NOT NULL,
-                artist TEXT DEFAULT 'Unknown Artist',
-                album TEXT DEFAULT '',
-                isrc TEXT DEFAULT NULL,
-                local_path TEXT DEFAULT NULL,
-                remote_reference TEXT DEFAULT NULL,
-                file_hash TEXT DEFAULT NULL,
-                codec TEXT DEFAULT 'FLAC',
-                container TEXT DEFAULT 'FLAC',
-                sample_rate INTEGER DEFAULT NULL,
-                bit_depth INTEGER DEFAULT NULL,
-                channels INTEGER DEFAULT 2,
-                bitrate INTEGER DEFAULT NULL,
-                duration_ms INTEGER DEFAULT 0,
-                file_size INTEGER DEFAULT 0,
-                quality_class TEXT DEFAULT 'LOSSLESS',
-                verification_status TEXT DEFAULT 'UNVERIFIED',
-                source_type TEXT DEFAULT 'CACHED_FILE',
-                playback_transport TEXT DEFAULT 'PROGRESSIVE',
-                replay_gain_track_gain REAL DEFAULT NULL,
-                replay_gain_track_peak REAL DEFAULT NULL,
-                replay_gain_album_gain REAL DEFAULT NULL,
-                replay_gain_album_peak REAL DEFAULT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                verified_at DATETIME DEFAULT NULL,
-                last_used_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE INDEX IF NOT EXISTS idx_lossless_canonical ON lossless_sources(canonical_track_id);
-            CREATE INDEX IF NOT EXISTS idx_lossless_hash ON lossless_sources(file_hash);
-            CREATE INDEX IF NOT EXISTS idx_lossless_provider ON lossless_sources(provider);
-            CREATE INDEX IF NOT EXISTS idx_lossless_quality ON lossless_sources(quality_class, verification_status);
-        `);
-    } catch (err) {
-        console.error("Migration error:", err);
-    }
-
-    // Auto-seed canonical songs if table is empty
-    try {
-        const countRes = db.exec("SELECT COUNT(*) FROM songs");
-        if (!countRes || !countRes[0] || countRes[0].values[0][0] === 0) {
-            const { seedDatabase } = require('./database/seedSongs');
-            seedDatabase(db);
-        }
-    } catch (e) {
-        console.warn('[DB] Song table seed check notice:', e.message);
-    }
-    
-    saveDb();
-
-    // Save database to disk periodically and on changes
-    function saveDb() {
+    dbInitPromise = (async () => {
         try {
-            const data = db.export();
-            const buffer = Buffer.from(data);
-            fs.writeFileSync(DB_PATH, buffer);
+            const SQL = await initSqlJs();
+            let db;
+            if (fs.existsSync(DB_PATH)) {
+                try {
+                    const fileBuffer = fs.readFileSync(DB_PATH);
+                    db = new SQL.Database(fileBuffer);
+                } catch (e) {
+                    db = new SQL.Database();
+                }
+            } else {
+                db = new SQL.Database();
+            }
+
+            // Schema loading with inline fallback if schema.sql is not in bundle
+            let schema = '';
+            try {
+                schema = fs.readFileSync(path.join(__dirname, 'database', 'schema.sql'), 'utf-8');
+            } catch (e) {
+                schema = `
+                    CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT UNIQUE, password_hash TEXT);
+                    CREATE TABLE IF NOT EXISTS playlists (id TEXT PRIMARY KEY, user_id TEXT, name TEXT);
+                    CREATE TABLE IF NOT EXISTS playlist_tracks (id TEXT PRIMARY KEY, playlist_id TEXT, track_id TEXT, track_source TEXT, track_data_json TEXT, position INTEGER);
+                    CREATE TABLE IF NOT EXISTS liked_tracks (id TEXT PRIMARY KEY, user_id TEXT, track_id TEXT, track_source TEXT, track_data_json TEXT, liked_at DATETIME);
+                    CREATE TABLE IF NOT EXISTS play_history (id TEXT PRIMARY KEY, user_id TEXT, track_id TEXT, track_source TEXT, track_data_json TEXT, played_at DATETIME);
+                    CREATE TABLE IF NOT EXISTS uploaded_tracks (id TEXT PRIMARY KEY, user_id TEXT, title TEXT, artist TEXT, album TEXT, duration INTEGER, file_path TEXT, format TEXT, codec TEXT, quality TEXT, lossless BOOLEAN, sampleRate INTEGER, bitDepth INTEGER, bitrate INTEGER, channels INTEGER, classification TEXT, is_music BOOLEAN);
+                    CREATE TABLE IF NOT EXISTS songs (id TEXT PRIMARY KEY, title TEXT, artist TEXT, language TEXT, genre TEXT, mood TEXT, vibe TEXT, energy REAL, era TEXT, hero_actor TEXT, music_director TEXT, bpm INTEGER, popularity INTEGER, tags TEXT);
+                    CREATE TABLE IF NOT EXISTS lossless_sources (id TEXT PRIMARY KEY, canonical_track_id TEXT NOT NULL, provider TEXT NOT NULL, provider_track_id TEXT, title TEXT NOT NULL, artist TEXT, album TEXT, isrc TEXT, local_path TEXT, remote_reference TEXT, file_hash TEXT, codec TEXT DEFAULT 'FLAC', container TEXT DEFAULT 'FLAC', sample_rate INTEGER, bit_depth INTEGER, channels INTEGER DEFAULT 2, bitrate INTEGER, duration_ms INTEGER DEFAULT 0, file_size INTEGER DEFAULT 0, quality_class TEXT DEFAULT 'LOSSLESS', verification_status TEXT DEFAULT 'UNVERIFIED', source_type TEXT DEFAULT 'CACHED_FILE', playback_transport TEXT DEFAULT 'PROGRESSIVE', replay_gain_track_gain REAL, replay_gain_track_peak REAL, replay_gain_album_gain REAL, replay_gain_album_peak REAL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, verified_at DATETIME, last_used_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+                `;
+            }
+            db.run(schema);
+
+            // Migrations for existing DBs
+            try {
+                const tableInfo = db.exec("PRAGMA table_info(uploaded_tracks)");
+                if (tableInfo.length > 0) {
+                    const columns = tableInfo[0].values.map(col => col[1]);
+                    if (!columns.includes('format')) {
+                        db.run("ALTER TABLE uploaded_tracks ADD COLUMN format TEXT DEFAULT NULL");
+                        db.run("ALTER TABLE uploaded_tracks ADD COLUMN codec TEXT DEFAULT NULL");
+                        db.run("ALTER TABLE uploaded_tracks ADD COLUMN quality TEXT DEFAULT 'UNKNOWN'");
+                        db.run("ALTER TABLE uploaded_tracks ADD COLUMN lossless BOOLEAN DEFAULT 0");
+                        db.run("ALTER TABLE uploaded_tracks ADD COLUMN sampleRate INTEGER DEFAULT NULL");
+                        db.run("ALTER TABLE uploaded_tracks ADD COLUMN bitDepth INTEGER DEFAULT NULL");
+                        db.run("ALTER TABLE uploaded_tracks ADD COLUMN bitrate INTEGER DEFAULT NULL");
+                        db.run("ALTER TABLE uploaded_tracks ADD COLUMN channels INTEGER DEFAULT NULL");
+                    }
+                    if (!columns.includes('classification')) {
+                        db.run("ALTER TABLE uploaded_tracks ADD COLUMN classification TEXT DEFAULT 'UNKNOWN'");
+                        db.run("ALTER TABLE uploaded_tracks ADD COLUMN is_music BOOLEAN DEFAULT 1");
+                    }
+                }
+            } catch (err) {}
+
+            // Auto-seed canonical songs if table is empty
+            try {
+                const countRes = db.exec("SELECT COUNT(*) FROM songs");
+                if (!countRes || !countRes[0] || countRes[0].values[0][0] === 0) {
+                    const { seedDatabase } = require('./database/seedSongs');
+                    seedDatabase(db);
+                }
+            } catch (e) {}
+
+            dbInstance = db;
+            return db;
         } catch (err) {
-            console.warn('[Storage] DB save notice (ephemeral serverless environment):', err.message);
+            console.error('[DB] Database initialization error:', err.message);
+            const SQL = await initSqlJs();
+            dbInstance = new SQL.Database();
+            return dbInstance;
         }
+    })();
+
+    return dbInitPromise;
+}
+
+function saveDb(db) {
+    if (!db) return;
+    try {
+        const data = db.export();
+        fs.writeFileSync(DB_PATH, Buffer.from(data));
+    } catch (err) {
+        // Ephemeral serverless notice
     }
+}
 
-    // Make db and saveDb available to routes
-    app.locals.db = db;
-    app.locals.saveDb = saveDb;
+// Database Injection Middleware: Guarantees db is ready before any route executes
+app.use(async (req, res, next) => {
+    try {
+        const db = await getDatabase();
+        req.app.locals.db = db;
+        req.app.locals.saveDb = () => saveDb(db);
+    } catch (err) {
+        console.warn('[DB Middleware] Failed to get db instance:', err.message);
+    }
+    next();
+});
 
-    // --- API Routes ---
-    app.use('/api/auth', require('./routes/auth'));
-    app.use('/api/music', require('./routes/music'));
-    app.use('/api/playlists', require('./routes/playlists'));
-    app.use('/api/library', require('./routes/library'));
-    app.use('/api/upload', require('./routes/upload'));
-    app.use('/api', require('./routes/recommendations'));
+// --- API Routes ---
+app.use('/api/auth', require('./routes/auth'));
+app.use('/api/music', require('./routes/music'));
+app.use('/api/playlists', require('./routes/playlists'));
+app.use('/api/library', require('./routes/library'));
+app.use('/api/upload', require('./routes/upload'));
+app.use('/api', require('./routes/recommendations'));
 
-    // --- SPA Fallback ---
-    app.get('*', (req, res) => {
-        res.sendFile(path.join(__dirname, 'public', 'index.html'));
-    });
+// --- SPA Fallback ---
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
-    // --- Error Handling ---
-    app.use((err, req, res, next) => {
-        console.error('Server error:', err.message);
-        res.status(500).json({ error: 'Internal server error' });
-    });
+// --- Error Handling ---
+app.use((err, req, res, next) => {
+    console.error('[Server] Unhandled request error:', err.message);
+    res.status(500).json({ error: 'Internal server error', message: err.message });
+});
 
-    // Auto-save database every 30 seconds
-    setInterval(saveDb, 30000);
+// Local Development Server Startup
+if (!isVercel) {
+    getDatabase().then(db => {
+        saveDb(db);
+        setInterval(() => saveDb(db), 30000);
 
-    // --- Start Server ---
-    server.listen(PORT, () => {
-        console.log(`
+        server.listen(PORT, () => {
+            console.log(`
     ╔══════════════════════════════════════════╗
     ║     🎵 BASA Server Running               ║
     ║     http://localhost:${PORT}                 ║
     ╚══════════════════════════════════════════╝
-        `);
+            `);
+        });
+    }).catch(err => {
+        console.error('Failed to start server:', err);
     });
 
-    // Unhandled promise rejection safety net
-    process.on('unhandledRejection', (reason, promise) => {
-        console.warn('[Process] Caught unhandled rejection:', reason && reason.message ? reason.message : reason);
-    });
-
-    // Graceful shutdown
     process.on('SIGINT', () => {
-        saveDb();
-        db.close();
+        if (dbInstance) saveDb(dbInstance);
         process.exit(0);
     });
 }
 
-startServer().catch(err => {
-    console.error('Failed to start server:', err);
-    process.exit(1);
-});
-
+// Export for Vercel Serverless
 module.exports = app;
