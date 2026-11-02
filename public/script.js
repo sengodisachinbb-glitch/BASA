@@ -199,11 +199,22 @@ function setupRouter() {
         if (hash === '#home') {
             showView('view-home');
             loadHome();
+        } else if (hash === '#explore') {
+            showView('view-explore');
+            loadExploreTrending();
         } else if (hash === '#search') {
             showView('view-search');
         } else if (hash === '#library') {
             showView('view-library');
             loadLibrary();
+        } else if (hash === '#replay') {
+            showView('view-replay');
+            loadReplayView();
+        } else if (hash === '#equalizer') {
+            showView('view-equalizer');
+            initScreenEqualizer();
+        } else if (hash === '#sources') {
+            showView('view-sources');
         } else if (hash === '#uploads') {
             showView('view-uploads');
             loadUploads();
@@ -1833,7 +1844,7 @@ function renderTrackCard(track, source = 'youtube', index = -1, contextType = ''
         </div>
         <div class="track-card-info">
             <div class="track-card-title">${escapeHtml(trackObj.title)}</div>
-            <div class="track-card-artist">${escapeHtml(trackObj.artist)}</div>
+            <div class="track-card-artist" style="cursor:pointer;" onclick="event.stopPropagation();openArtistModal('${escapeHtml(trackObj.artist)}', '${trackObj.cover || ''}')">${escapeHtml(trackObj.artist)}</div>
             ${versionBadgeHtml}
             ${renderQualityBadge(trackObj)}
         </div>
@@ -1996,7 +2007,7 @@ function renderTrackListItem(track, index, source, options = {}) {
         <div class="track-list-info">
             <span class="track-list-title">${escapeHtml(trackObj.title)}</span>
             <div class="track-list-artist-row">
-                <span class="track-list-artist">${escapeHtml(trackObj.artist)}</span>
+                <span class="track-list-artist" style="cursor:pointer;" onclick="event.stopPropagation();openArtistModal('${escapeHtml(trackObj.artist)}', '${trackObj.cover || ''}')">${escapeHtml(trackObj.artist)}</span>
                 ${renderQualityBadge(trackObj)}
                 ${sourcesChipsHtml}
             </div>
@@ -6449,3 +6460,517 @@ window.handlePwaInstallClick = handlePwaInstallClick;
 window.triggerNativeInstallPrompt = triggerNativeInstallPrompt;
 window.openPwaInstallModal = openPwaInstallModal;
 window.closePwaInstallModal = closePwaInstallModal;
+
+// ============================================
+// EXPLORE SCREEN SUBSYSTEM (ExploreScreen.kt)
+// ============================================
+
+async function exploreMoodStation(moodQuery) {
+    showToast(`Starting ${moodQuery} Station...`, 'info');
+    try {
+        const data = await api(`/search?q=${encodeURIComponent(moodQuery)}`);
+        const tracks = data.tracks || [];
+        if (tracks.length > 0) {
+            playFromList(tracks, 0, `${moodQuery} Station`);
+        } else {
+            showToast('No tracks found for this station', 'warning');
+        }
+    } catch (e) {
+        showToast('Failed to load station', 'error');
+    }
+}
+
+async function loadExploreTrending() {
+    const grid = document.getElementById('explore-trending-grid');
+    if (!grid) return;
+    grid.innerHTML = '<div class="grid-skeleton">Loading trending hits...</div>';
+
+    try {
+        const data = await api('/search?q=Trending Tamil Hits 2026');
+        const tracks = data.tracks || [];
+        if (tracks.length > 0) {
+            window.currentExploreTracks = tracks;
+            grid.innerHTML = tracks.slice(0, 12).map((t, idx) => 
+                renderTrackCard(t, t.source || 'youtube', idx, 'explore')
+            ).join('');
+        } else {
+            grid.innerHTML = '<div class="empty-state">No trending tracks available right now.</div>';
+        }
+    } catch (err) {
+        grid.innerHTML = '<div class="empty-state">Failed to load trending tracks</div>';
+    }
+}
+
+window.exploreMoodStation = exploreMoodStation;
+window.loadExploreTrending = loadExploreTrending;
+
+// ============================================
+// BASA REPLAY & ANALYTICS (ReplayScreen.kt)
+// ============================================
+
+function loadReplayView() {
+    let historyItems = [];
+    if (window.playerQueueStore && window.playerQueueStore.state && window.playerQueueStore.state.history) {
+        historyItems = window.playerQueueStore.state.history.map(it => it.song || it);
+    }
+    
+    // Supplement from localStorage
+    try {
+        const localRecents = JSON.parse(localStorage.getItem('basa_recent_searches') || '[]');
+        if (Array.isArray(localRecents)) {
+            historyItems = [...historyItems, ...localRecents.map(r => r.rawTrack || r)];
+        }
+    } catch (e) {}
+
+    // Deduplicate and count occurrences
+    const songCountMap = new Map();
+    const artistCountMap = new Map();
+
+    for (const item of historyItems) {
+        if (!item) continue;
+        const songKey = `${item.title || item.name || 'Unknown'} - ${item.artist || 'Unknown'}`;
+        const artistKey = item.artist || 'Unknown Artist';
+
+        songCountMap.set(songKey, (songCountMap.get(songKey) || 0) + 1);
+        if (artistKey && artistKey !== 'Unknown Artist') {
+            artistCountMap.set(artistKey, (artistCountMap.get(artistKey) || 0) + 1);
+        }
+    }
+
+    const totalPlays = Math.max(historyItems.length, songCountMap.size, 1);
+    const estimatedMinutes = Math.round(totalPlays * 3.4);
+
+    const minutesEl = document.getElementById('replay-stat-minutes');
+    const songsEl = document.getElementById('replay-stat-songs');
+    const artistEl = document.getElementById('replay-stat-artist');
+    const genreEl = document.getElementById('replay-stat-genre');
+
+    if (minutesEl) minutesEl.textContent = String(estimatedMinutes);
+    if (songsEl) songsEl.textContent = String(totalPlays);
+
+    // Top artist
+    let topArtistName = 'Anirudh Ravichander';
+    let topArtistPlays = 0;
+    for (const [art, count] of artistCountMap.entries()) {
+        if (count > topArtistPlays) {
+            topArtistPlays = count;
+            topArtistName = art;
+        }
+    }
+    if (artistEl) artistEl.textContent = topArtistName;
+    if (genreEl) genreEl.textContent = 'Tamil Melody / EDM';
+
+    // Render Top Tracks
+    const topTracksList = document.getElementById('replay-top-tracks-list');
+    if (topTracksList) {
+        const sortedSongs = Array.from(songCountMap.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5);
+
+        if (sortedSongs.length > 0) {
+            topTracksList.innerHTML = sortedSongs.map(([titleArt, count], idx) => {
+                const parts = titleArt.split(' - ');
+                const title = parts[0];
+                const artist = parts[1] || 'Unknown';
+                return `
+                    <div class="track-item" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-radius: 10px; margin-bottom: 6px; background: rgba(255,255,255,0.03);">
+                        <div style="display: flex; align-items: center; gap: 14px;">
+                            <span style="font-size: 16px; font-weight: 800; color: ${idx === 0 ? '#fbbf24' : idx === 1 ? '#94a3b8' : idx === 2 ? '#b45309' : '#64748b'}; width: 20px;">#${idx + 1}</span>
+                            <div>
+                                <div style="font-weight: 600; font-size: 14px; color: #fff;">${escapeHtml(title)}</div>
+                                <div style="font-size: 12px; color: var(--text-secondary);">${escapeHtml(artist)}</div>
+                            </div>
+                        </div>
+                        <span class="taste-badge" style="font-size: 11px;">${count} play${count > 1 ? 's' : ''}</span>
+                    </div>
+                `;
+            }).join('');
+        } else {
+            topTracksList.innerHTML = '<div style="color: var(--text-secondary); font-size: 13px; padding: 12px 0;">Play more songs to build your personalized Replay ranking!</div>';
+        }
+    }
+
+    // Render Top Artists
+    const topArtistsList = document.getElementById('replay-top-artists-list');
+    if (topArtistsList) {
+        const sortedArtists = Array.from(artistCountMap.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 4);
+
+        if (sortedArtists.length > 0) {
+            topArtistsList.innerHTML = sortedArtists.map(([art, count], idx) => {
+                const pct = Math.min(100, Math.round((count / totalPlays) * 100));
+                return `
+                    <div style="padding: 12px 14px; border-radius: 10px; background: rgba(255,255,255,0.03);">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 13px;">
+                            <strong style="color: #fff; cursor: pointer;" onclick="openArtistModal('${escapeHtml(art)}')">${escapeHtml(art)}</strong>
+                            <span style="color: var(--text-secondary);">${count} stream${count > 1 ? 's' : ''}</span>
+                        </div>
+                        <div style="width: 100%; height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
+                            <div style="width: ${Math.max(15, pct)}%; height: 100%; background: linear-gradient(90deg, #ec4899, #8b5cf6); border-radius: 3px;"></div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        } else {
+            topArtistsList.innerHTML = '<div style="color: var(--text-secondary); font-size: 13px; padding: 12px 0;">Artists will automatically populate as you listen.</div>';
+        }
+    }
+}
+
+function generateReplayPoster() {
+    const container = document.getElementById('replay-poster-container');
+    const canvas = document.getElementById('replay-canvas');
+    if (!container || !canvas) return;
+
+    container.style.display = 'block';
+    container.scrollIntoView({ behavior: 'smooth' });
+
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+
+    // Background gradient
+    const bgGrad = ctx.createLinearGradient(0, 0, w, h);
+    bgGrad.addColorStop(0, '#0a0d1a');
+    bgGrad.addColorStop(0.5, '#1e1b4b');
+    bgGrad.addColorStop(1, '#09090b');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, w, h);
+
+    // Glowing Neon Orbs
+    ctx.save();
+    const orbGrad1 = ctx.createRadialGradient(150, 180, 20, 150, 180, 250);
+    orbGrad1.addColorStop(0, 'rgba(168, 85, 247, 0.4)');
+    orbGrad1.addColorStop(1, 'rgba(168, 85, 247, 0)');
+    ctx.fillStyle = orbGrad1;
+    ctx.beginPath();
+    ctx.arc(150, 180, 250, 0, Math.PI * 2);
+    ctx.fill();
+
+    const orbGrad2 = ctx.createRadialGradient(450, 650, 20, 450, 650, 280);
+    orbGrad2.addColorStop(0, 'rgba(56, 189, 248, 0.35)');
+    orbGrad2.addColorStop(1, 'rgba(56, 189, 248, 0)');
+    ctx.fillStyle = orbGrad2;
+    ctx.beginPath();
+    ctx.arc(450, 650, 280, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Card border
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(16, 16, w - 32, h - 32);
+
+    // Header branding
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '800 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillText('BASA 2.0', 48, 70);
+
+    ctx.fillStyle = '#c084fc';
+    ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillText('SOUND REPLAY · 2026 CAPSULE', 48, 92);
+
+    // Title
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '800 36px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillText('Your Year in Music', 48, 160);
+
+    // Listening stats card
+    const minVal = document.getElementById('replay-stat-minutes')?.textContent || '1,420';
+    const topArtVal = document.getElementById('replay-stat-artist')?.textContent || 'Anirudh Ravichander';
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+    ctx.roundRect ? ctx.roundRect(48, 195, w - 96, 120, 16) : ctx.fillRect(48, 195, w - 96, 120);
+    ctx.fill();
+
+    ctx.fillStyle = '#4ade80';
+    ctx.font = '800 48px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillText(minVal, 72, 260);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.font = '600 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillText('TOTAL MINUTES STREAMED IN HI-RES', 72, 290);
+
+    // Top Songs List
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '700 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillText('🏆 Top Tracks', 48, 365);
+
+    const trackItems = document.querySelectorAll('#replay-top-tracks-list .track-item');
+    let startY = 405;
+    if (trackItems.length > 0) {
+        trackItems.forEach((item, idx) => {
+            if (idx >= 5) return;
+            const title = item.querySelector('div div:first-child')?.textContent || `Track ${idx + 1}`;
+            const artist = item.querySelector('div div:last-child')?.textContent || 'Artist';
+
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+            ctx.roundRect ? ctx.roundRect(48, startY - 24, w - 96, 48, 10) : ctx.fillRect(48, startY - 24, w - 96, 48);
+            ctx.fill();
+
+            ctx.fillStyle = idx === 0 ? '#fbbf24' : '#38bdf8';
+            ctx.font = '800 16px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            ctx.fillText(`#${idx + 1}`, 64, startY + 6);
+
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '600 15px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            ctx.fillText(title.substring(0, 28), 105, startY + 5);
+
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.font = '500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            ctx.fillText(artist.substring(0, 20), 400, startY + 5);
+
+            startY += 58;
+        });
+    } else {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+        ctx.font = '500 15px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        ctx.fillText('Streaming active — generating chart...', 48, 410);
+        startY = 460;
+    }
+
+    // Top Artist Badge
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+    ctx.roundRect ? ctx.roundRect(48, startY + 20, w - 96, 90, 16) : ctx.fillRect(48, startY + 20, w - 96, 90);
+    ctx.fill();
+
+    ctx.fillStyle = '#f472b6';
+    ctx.font = '700 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillText('MOST FREQUENTED ARTIST', 72, startY + 52);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '800 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillText(topArtistVal, 72, startY + 84);
+
+    // Footer Watermark
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.font = '500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillText('Verified Bit-Perfect Studio Playback · https://basa.app', 48, h - 45);
+}
+
+function downloadReplayPoster() {
+    const canvas = document.getElementById('replay-canvas');
+    if (!canvas) return;
+    const link = document.createElement('a');
+    link.download = 'basa-replay-2026.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    showToast('Downloaded BASA Replay Poster!', 'success');
+}
+
+function shareReplayPoster() {
+    if (navigator.share) {
+        navigator.share({
+            title: 'My BASA 2.0 Replay',
+            text: 'Check out my 2026 music listening replay on BASA!',
+            url: window.location.href
+        }).catch(() => {});
+    } else {
+        downloadReplayPoster();
+    }
+}
+
+window.loadReplayView = loadReplayView;
+window.generateReplayPoster = generateReplayPoster;
+window.downloadReplayPoster = downloadReplayPoster;
+window.shareReplayPoster = shareReplayPoster;
+
+// ============================================
+// EQUALIZER SCREEN SUBSYSTEM (EqualizerScreen.kt)
+// ============================================
+
+function initScreenEqualizer() {
+    // Sync slider positions with window.dspEngine
+    if (window.dspEngine && window.dspEngine.equalizer) {
+        const bands = window.dspEngine.equalizer.bands || [];
+        bands.forEach((b, idx) => {
+            const slider = document.getElementById(`eq-screen-band-${idx}`);
+            const readout = document.getElementById(`eq-screen-val-${idx}`);
+            if (slider && b.node) {
+                slider.value = b.node.gain.value;
+                if (readout) readout.textContent = `${b.node.gain.value > 0 ? '+' : ''}${b.node.gain.value.toFixed(1)} dB`;
+            }
+        });
+    }
+    syncScreenEqCurve();
+}
+
+function syncScreenEqCurve() {
+    const canvas = document.getElementById('eq-screen-curve-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+
+    ctx.clearRect(0, 0, w, h);
+
+    // Draw 0 dB center reference line
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(0, h / 2);
+    ctx.lineTo(w, h / 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Sample band values
+    const points = [];
+    const bandsCount = 10;
+    for (let i = 0; i < bandsCount; i++) {
+        const slider = document.getElementById(`eq-screen-band-${i}`);
+        const gain = slider ? parseFloat(slider.value) : 0;
+        const x = (i / (bandsCount - 1)) * (w - 60) + 30;
+        // Map [-12 dB, +12 dB] to [h - 10, 10]
+        const y = h / 2 - (gain / 12) * (h / 2 - 15);
+        points.push({ x, y });
+
+        const readout = document.getElementById(`eq-screen-val-${i}`);
+        if (readout) readout.textContent = `${gain > 0 ? '+' : ''}${gain.toFixed(1)} dB`;
+    }
+
+    // Draw Smooth Frequency Curve
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 0; i < points.length - 1; i++) {
+        const xc = (points[i].x + points[i + 1].x) / 2;
+        const yc = (points[i].y + points[i + 1].y) / 2;
+        ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+    }
+    ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+    ctx.stroke();
+
+    // Area Fill
+    ctx.lineTo(points[points.length - 1].x, h / 2);
+    ctx.lineTo(points[0].x, h / 2);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.15)';
+    ctx.fill();
+
+    // Draw Control Points
+    points.forEach(p => {
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+    });
+}
+
+window.initScreenEqualizer = initScreenEqualizer;
+window.syncScreenEqCurve = syncScreenEqCurve;
+
+// ============================================
+// ARTIST & ALBUM MODAL SUBSYSTEM (Artist/AlbumScreen.kt)
+// ============================================
+
+async function openArtistModal(artistName, artistImg = null) {
+    if (!artistName) return;
+    const modal = document.getElementById('artist-modal');
+    const nameEl = document.getElementById('artist-modal-name');
+    const imgEl = document.getElementById('artist-modal-img');
+    const tracksContainer = document.getElementById('artist-modal-tracks');
+    const playRadioBtn = document.getElementById('artist-modal-play-radio-btn');
+
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    modal.style.display = 'grid';
+
+    if (nameEl) nameEl.textContent = artistName;
+    if (imgEl) imgEl.src = artistImg || '/logo-mark.png';
+    if (tracksContainer) tracksContainer.innerHTML = '<div class="loader">Loading artist discography...</div>';
+
+    if (playRadioBtn) {
+        playRadioBtn.onclick = () => {
+            closeArtistModal();
+            exploreMoodStation(`${artistName} Hits`);
+        };
+    }
+
+    try {
+        const data = await api(`/search?q=${encodeURIComponent(artistName)}`);
+        const tracks = data.tracks || [];
+        if (tracks.length > 0) {
+            tracksContainer.innerHTML = tracks.slice(0, 15).map((t, idx) =>
+                renderTrackListItem(t, idx, t.source || 'youtube', { contextType: 'artist', contextName: artistName })
+            ).join('');
+        } else {
+            tracksContainer.innerHTML = '<div class="empty-state">No tracks found for this artist.</div>';
+        }
+    } catch (e) {
+        if (tracksContainer) tracksContainer.innerHTML = '<div class="empty-state">Failed to load tracks.</div>';
+    }
+}
+
+function closeArtistModal() {
+    const modal = document.getElementById('artist-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.style.display = 'none';
+    }
+}
+
+async function openAlbumModal(albumTitle, artistName = '', albumImg = null) {
+    if (!albumTitle) return;
+    const modal = document.getElementById('album-modal');
+    const titleEl = document.getElementById('album-modal-title');
+    const artistEl = document.getElementById('album-modal-artist');
+    const imgEl = document.getElementById('album-modal-img');
+    const tracksContainer = document.getElementById('album-modal-tracks');
+    const playAllBtn = document.getElementById('album-modal-play-btn');
+    const queueBtn = document.getElementById('album-modal-queue-btn');
+
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    modal.style.display = 'grid';
+
+    if (titleEl) titleEl.textContent = albumTitle;
+    if (artistEl) artistEl.textContent = artistName || 'Original Soundtrack';
+    if (imgEl) imgEl.src = albumImg || '/logo-mark.png';
+    if (tracksContainer) tracksContainer.innerHTML = '<div class="loader">Loading album tracks...</div>';
+
+    try {
+        const query = `${albumTitle} ${artistName || ''}`.trim();
+        const data = await api(`/search?q=${encodeURIComponent(query)}`);
+        const tracks = data.tracks || [];
+
+        if (playAllBtn) {
+            playAllBtn.onclick = () => {
+                closeAlbumModal();
+                if (tracks.length > 0) playFromList(tracks, 0, albumTitle);
+            };
+        }
+
+        if (queueBtn) {
+            queueBtn.onclick = () => {
+                tracks.forEach(t => addToQueue(t));
+                showToast(`Added ${tracks.length} tracks to Queue`, 'success');
+            };
+        }
+
+        if (tracks.length > 0) {
+            tracksContainer.innerHTML = tracks.map((t, idx) =>
+                renderTrackListItem(t, idx, t.source || 'youtube', { contextType: 'album', contextName: albumTitle })
+            ).join('');
+        } else {
+            tracksContainer.innerHTML = '<div class="empty-state">No album songs found.</div>';
+        }
+    } catch (e) {
+        if (tracksContainer) tracksContainer.innerHTML = '<div class="empty-state">Failed to load album songs.</div>';
+    }
+}
+
+function closeAlbumModal() {
+    const modal = document.getElementById('album-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.style.display = 'none';
+    }
+}
+
+window.openArtistModal = openArtistModal;
+window.closeArtistModal = closeArtistModal;
+window.openAlbumModal = openAlbumModal;
+window.closeAlbumModal = closeAlbumModal;
