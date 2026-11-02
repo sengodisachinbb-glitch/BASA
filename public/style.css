@@ -682,6 +682,39 @@ img {
   background: rgba(255, 255, 255, 0.12);
 }
 
+/* PWA Download / Install App Button */
+.pwa-install-btn {
+  background: transparent;
+  border: none;
+  color: #b3b3b3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  flex-shrink: 0;
+  margin: 0 3px;
+}
+
+.pwa-install-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+  transform: scale(1.08);
+}
+
+.pwa-install-btn.has-prompt {
+  color: var(--accent, #1ed760);
+  animation: pwaPulse 2.5s infinite ease-in-out;
+}
+
+@keyframes pwaPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); color: #ffffff; }
+}
+
 /* Floating Suggestions Dropdown Overlay */
 .sp-suggestions-dropdown {
   position: absolute;

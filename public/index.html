@@ -6,6 +6,11 @@
     <title>BASA — Premium Music Streaming</title>
     <link rel="icon" type="image/png" href="/favicon.png">
     <link rel="apple-touch-icon" href="/logo-mark.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#0b0f19">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="BASA">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -38,6 +43,15 @@
                         <kbd class="sp-search-kbd">L</kbd>
                     </div>
                     <div class="sp-search-divider"></div>
+                    <button type="button" id="pwa-install-btn" class="pwa-install-btn" title="Install BASA App (Download to Desktop / Phone)" onclick="handlePwaInstallClick()" aria-label="Install App">
+                        <svg class="pwa-install-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                            <line x1="8" y1="21" x2="16" y2="21"></line>
+                            <line x1="12" y1="17" x2="12" y2="21"></line>
+                            <polyline points="9 10 12 13 15 10"></polyline>
+                            <line x1="12" y1="6" x2="12" y2="13"></line>
+                        </svg>
+                    </button>
                     <button type="button" id="sp-browse-btn" class="sp-search-browse-btn" title="Browse / Categories" onclick="navigate('#search')">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect></svg>
                     </button>
@@ -840,6 +854,44 @@
                 </div>
             </div>
         </aside>
+
+        <!-- PWA Install Guide Modal -->
+        <div id="pwa-install-modal" class="modal-overlay hidden">
+            <div class="modal glass-floating" style="max-width: 440px;">
+                <button class="modal-close" onclick="closePwaInstallModal()">✕</button>
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <img src="/logo-mark.png" alt="BASA" style="width: 54px; height: 54px; border-radius: 12px; margin-bottom: 12px;">
+                    <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 6px;">Install BASA App</h2>
+                    <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.4;">
+                        Install BASA as a standalone desktop or mobile application for instant playback, offline access, and zero browser distractions.
+                    </p>
+                </div>
+                <div class="pwa-instructions-list" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
+                    <div style="display: flex; gap: 12px; align-items: center; background: rgba(255,255,255,0.06); padding: 12px 14px; border-radius: 8px;">
+                        <span style="font-size: 20px;">💻</span>
+                        <div style="font-size: 12.5px; line-height: 1.4;">
+                            <strong>Chrome / Edge (PC &amp; Mac):</strong><br>
+                            Click the <strong>Install</strong> icon in the address bar (or click the button below).
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 12px; align-items: center; background: rgba(255,255,255,0.06); padding: 12px 14px; border-radius: 8px;">
+                        <span style="font-size: 20px;">📱</span>
+                        <div style="font-size: 12.5px; line-height: 1.4;">
+                            <strong>iPhone / iPad Safari:</strong><br>
+                            Tap the <strong>Share</strong> button <span style="font-size:14px;">📤</span> then select <strong>"Add to Home Screen"</strong>.
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 12px; align-items: center; background: rgba(255,255,255,0.06); padding: 12px 14px; border-radius: 8px;">
+                        <span style="font-size: 20px;">🤖</span>
+                        <div style="font-size: 12.5px; line-height: 1.4;">
+                            <strong>Android:</strong><br>
+                            Tap the menu (⋮) and select <strong>"Install app"</strong> or <strong>"Add to Home screen"</strong>.
+                        </div>
+                    </div>
+                </div>
+                <button type="button" id="pwa-native-install-prompt-btn" class="button button-primary" style="width: 100%; justify-content: center; padding: 12px;" onclick="triggerNativeInstallPrompt()">Install Now</button>
+            </div>
+        </div>
 
         <!-- 6. Auth Modal -->
         <div id="auth-modal" class="modal-overlay hidden">

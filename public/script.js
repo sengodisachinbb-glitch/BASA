@@ -6379,3 +6379,73 @@ window.renderPlayerQualityBadge = renderPlayerQualityBadge;
 window.handleQueueDragStart = handleQueueDragStart;
 window.handleQueueDragOver = handleQueueDragOver;
 window.handleQueueDrop = handleQueueDrop;
+
+// ==========================================
+// PWA INSTALLATION & SERVICE WORKER ENGINE
+// ==========================================
+let deferredInstallPrompt = null;
+
+// Register Service Worker for PWA installation
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').then((reg) => {
+            console.log('[PWA] Service Worker registered with scope:', reg.scope);
+        }).catch((err) => {
+            console.warn('[PWA] Service Worker registration notice:', err.message);
+        });
+    });
+}
+
+// Capture native install prompt
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    const btn = document.getElementById('pwa-install-btn');
+    if (btn) btn.classList.add('has-prompt');
+});
+
+window.addEventListener('appinstalled', () => {
+    console.log('[PWA] BASA application installed!');
+    showToast('🎉 BASA App installed successfully!', 'success');
+    deferredInstallPrompt = null;
+    const btn = document.getElementById('pwa-install-btn');
+    if (btn) btn.classList.remove('has-prompt');
+    closePwaInstallModal();
+});
+
+function handlePwaInstallClick() {
+    if (deferredInstallPrompt) {
+        triggerNativeInstallPrompt();
+    } else {
+        openPwaInstallModal();
+    }
+}
+
+async function triggerNativeInstallPrompt() {
+    if (deferredInstallPrompt) {
+        deferredInstallPrompt.prompt();
+        const { outcome } = await deferredInstallPrompt.userChoice;
+        if (outcome === 'accepted') {
+            showToast('🎉 Installing BASA App...', 'success');
+        }
+        deferredInstallPrompt = null;
+        closePwaInstallModal();
+    } else {
+        showToast('Tip: Use browser menu or address bar icon to install BASA', 'info');
+    }
+}
+
+function openPwaInstallModal() {
+    const modal = document.getElementById('pwa-install-modal');
+    if (modal) modal.classList.remove('hidden');
+}
+
+function closePwaInstallModal() {
+    const modal = document.getElementById('pwa-install-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+window.handlePwaInstallClick = handlePwaInstallClick;
+window.triggerNativeInstallPrompt = triggerNativeInstallPrompt;
+window.openPwaInstallModal = openPwaInstallModal;
+window.closePwaInstallModal = closePwaInstallModal;
