@@ -162,7 +162,9 @@ class PlayerQueueStore {
             movie: s.movie || '',
             isLossless: Boolean(s.isLossless),
             isHiRes: Boolean(s.isHiRes),
-            quality: s.quality || 'STANDARD'
+            quality: s.quality || 'STANDARD',
+            recommendationReason: s.recommendationReason || s.reason || '',
+            aiCurated: Boolean(s.aiCurated)
         };
     }
 
@@ -347,10 +349,18 @@ class PlayerQueueStore {
             if (typeof window !== 'undefined' && window.playbackManager) window.playbackManager.pause();
         });
         navigator.mediaSession.setActionHandler('previoustrack', () => {
-            this.previous();
+            if (typeof window !== 'undefined' && typeof window.playPrev === 'function') {
+                window.playPrev();
+            } else {
+                this.previous();
+            }
         });
         navigator.mediaSession.setActionHandler('nexttrack', () => {
-            this.next(true);
+            if (typeof window !== 'undefined' && typeof window.playNext === 'function') {
+                window.playNext(true);
+            } else {
+                this.next(true);
+            }
         });
         navigator.mediaSession.setActionHandler('seekto', (details) => {
             if (details.seekTime != null && typeof window !== 'undefined' && window.playbackManager) {
@@ -415,8 +425,9 @@ class PlayerQueueStore {
 
             if (this.state.items.length === 0 || curIdx === -1) {
                 this.state.items.push(item);
-                this.state.currentIndex = 0;
-                this._dispatchPlay(item.song);
+                if (curIdx === -1 && this.state.items.length === 1) {
+                    this.state.currentIndex = 0;
+                }
                 return;
             }
 
@@ -487,7 +498,8 @@ class PlayerQueueStore {
             this.undoStack = [];
             this.unshuffledOrder = null;
 
-            this._dispatchPlay(currentItem.song);
+            this.state.isPlaying = true;
+            this._updateMediaSession(currentItem.song);
         });
 
         this.checkAutoQueueRefill();
@@ -708,7 +720,8 @@ class PlayerQueueStore {
         });
 
         if (nextItem && nextItem.song) {
-            this._dispatchPlay(nextItem.song);
+            this.state.isPlaying = true;
+            this._updateMediaSession(nextItem.song);
             this.checkAutoQueueRefill();
         } else {
             if (typeof window !== 'undefined' && window.playbackManager) window.playbackManager.pause();
@@ -752,7 +765,8 @@ class PlayerQueueStore {
         });
 
         if (prevItem) {
-            this._dispatchPlay(prevItem.song || prevItem);
+            this.state.isPlaying = true;
+            this._updateMediaSession(prevItem.song || prevItem);
         } else {
             if (typeof window !== 'undefined' && window.playbackManager) window.playbackManager.seekTo(0);
         }
@@ -846,6 +860,8 @@ class PlayerQueueStore {
         if (!curItem || !curItem.song) return;
 
         this.isFetchingAutoQueue = true;
+        const requestSeq = this.state.sequence;
+        const seedSongId = String(curItem.song.id);
 
         try {
             const seedItems = [
@@ -853,7 +869,6 @@ class PlayerQueueStore {
                 curItem
             ].filter(Boolean);
 
-            const seedSongId = curItem.song.id;
             const multiSeedIds = seedItems.map(it => it.song?.id || it.id).join(',');
 
             const excludeIds = new Set([
@@ -865,16 +880,35 @@ class PlayerQueueStore {
             const url = `/api/recommendations/next?seedSongId=${encodeURIComponent(seedSongId)}&seedIds=${encodeURIComponent(multiSeedIds)}&limit=15&exclude=${encodeURIComponent(excludeQuery)}`;
 
             const res = await fetch(url).then(r => r.json());
+
+            // Step 5: Ignore results that arrive for an outdated seed or an old queue seq number
+            if (this.state.sequence !== requestSeq || String(this.getCurrentSong()?.id) !== seedSongId) {
+                return;
+            }
+
             if (res && res.success && Array.isArray(res.recommendations)) {
-                let addedCount = 0;
+                const currentAutoplayCount = this.getAutoplayItems().length;
+                const availableSlotCount = Math.max(0, this.MAX_AUTOPLAY_UPCOMING - currentAutoplayCount);
+                if (availableSlotCount <= 0) return;
+
+                const itemsToAppend = [];
                 for (const raw of res.recommendations) {
-                    if (this.getAutoplayItems().length >= this.MAX_AUTOPLAY_UPCOMING) break;
-                    const item = this.add(raw, QueueSource.AUTOPLAY);
-                    if (item) addedCount++;
+                    if (itemsToAppend.length >= availableSlotCount) break;
+                    const norm = this._normalizeSong(raw);
+                    if (!this._isDuplicateSong(norm) && !itemsToAppend.some(x => String(x.song.id) === String(norm.id))) {
+                        itemsToAppend.push(this._normalizeQueueItem(norm, QueueSource.AUTOPLAY));
+                    }
+                }
+
+                // Step 5: Pure atomic append to upcoming list without changing currentIndex or current song
+                if (itemsToAppend.length > 0) {
+                    this._mutate(() => {
+                        this.state.items.push(...itemsToAppend);
+                    });
                 }
             }
         } catch (err) {
-            console.warn('[PlayerQueueStore] AutoQueue refill error:', err.message);
+            console.warn('[PlayerQueueStore] AutoQueue refill notice:', err.message);
         } finally {
             this.isFetchingAutoQueue = false;
         }
@@ -919,10 +953,6 @@ class PlayerQueueStore {
         if (!song) return;
         this.state.isPlaying = true;
         this._updateMediaSession(song);
-
-        if (typeof window !== 'undefined' && window.dispatchEvent) {
-            window.dispatchEvent(new CustomEvent('basa:play_track', { detail: song }));
-        }
     }
 
     play(rawSong, context = null) {

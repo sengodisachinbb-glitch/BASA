@@ -1,5 +1,7 @@
 const express = require('express');
 const router = express.Router();
+const innertubeProvider = require('../services/innertubeProvider');
+const addonSourceService = require('../services/addonSourceService');
 
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || ''; // Needs to be set in .env
 
@@ -89,8 +91,35 @@ function getRankScore(video) {
 
 async function fallbackYtSearch(query, limit = 25) {
     try {
+        const innerTracks = await innertubeProvider.search(query, { limit });
+        if (innerTracks && innerTracks.length > 0) {
+            return innerTracks.map(t => ({
+                id: t.videoId,
+                snippet: {
+                    title: t.title,
+                    channelTitle: t.artist,
+                    channelId: '',
+                    publishedAt: '',
+                    thumbnails: {
+                        default: { url: t.cover },
+                        medium: { url: t.cover },
+                        high: { url: t.cover }
+                    }
+                },
+                contentDetails: {
+                    duration: `PT${t.duration || 0}S`
+                }
+            }));
+        }
+    } catch (e) {
+        console.warn('[YouTube Search] InnerTube fallback notice:', e.message);
+    }
+
+    try {
         const yts = require('yt-search');
-        const searchResults = await yts(query);
+        const searchPromise = yts(query);
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('yt-search timeout')), 2500));
+        const searchResults = await Promise.race([searchPromise, timeoutPromise]);
         const videos = (searchResults.videos || []).filter(v => {
             const title = (v.title || '').toLowerCase();
             if (title.includes('#shorts') || title.includes('shorts/')) return false;
@@ -709,6 +738,58 @@ router.get('/resolve/:id', async (req, res) => {
     } catch (err) {
         console.error('Track resolve error:', err);
         res.status(500).json({ error: 'Failed to resolve track', details: err.message });
+    }
+});
+
+// ==========================================
+// BASA 2.0 ADDONS HTTP PROTOCOL ROUTES
+// ==========================================
+
+// GET /api/music/addons
+router.get('/addons', (req, res) => {
+    res.json({ success: true, addons: addonSourceService.getAddons() });
+});
+
+// POST /api/music/addons
+router.post('/addons', async (req, res) => {
+    try {
+        const { url } = req.body;
+        if (!url) return res.status(400).json({ error: 'Addon baseUrl is required' });
+        const addon = await addonSourceService.registerAddon(url);
+        res.json({ success: true, addon });
+    } catch (err) {
+        res.status(400).json({ error: 'Failed to register addon', details: err.message });
+    }
+});
+
+// PATCH /api/music/addons/:id
+router.patch('/addons/:id', (req, res) => {
+    const { id } = req.params;
+    const { enabled } = req.body;
+    const ok = addonSourceService.setAddonEnabled(id, enabled);
+    res.json({ success: ok });
+});
+
+// GET /api/music/suggestions?q=...
+router.get('/suggestions', async (req, res) => {
+    try {
+        const query = (req.query.q || req.query.query || '').trim();
+        if (!query) return res.json({ data: [] });
+        const suggestions = await innertubeProvider.getSearchSuggestions(query);
+        res.json({ data: suggestions });
+    } catch (err) {
+        res.json({ data: [] });
+    }
+});
+
+// GET /api/music/upnext/:videoId
+router.get('/upnext/:videoId', async (req, res) => {
+    try {
+        const { videoId } = req.params;
+        const tracks = await innertubeProvider.getUpNext(videoId);
+        res.json({ data: tracks });
+    } catch (err) {
+        res.json({ data: [] });
     }
 });
 

@@ -3,7 +3,7 @@
 
 **System**: BASA (Bilingual Audio Streaming Architecture)  
 **Main Project**: BASA Web Platform  
-**Reference Model**: BASA 2.0 / BitChord Architecture  
+**Reference Model**: BASA 2.0 / BASA Architecture  
 **Document**: `docs/ARCHITECTURE_UPGRADE.md`  
 **Date**: November 2026  
 
@@ -32,7 +32,7 @@ $$\mathbf{Upgraded\ BASA} = \mathbf{Original\ BASA\ UI} + \mathbf{Modular\ DSP\ 
 | **Source Resolution** | Basic fast-start with background upgrade | Deterministic Auto ranking by quality tier, verification confidence, transport latency; bounded retry | **Intelligent Source Resolver**: AUTO mode ranking (Verified Hi-Res FLAC > Verified FLAC > High 320k > Standard > YouTube fallback), manual source selector dropdown in player, bounded recovery ($N=2$) with seek restoration |
 | **Lyrics Subsystem** | Basic LRCLIB fetch and line display | am-lyrics, multi-provider race (LRCLIB, TTML, PaxSenix), word-sync, click-to-seek, millisecond clock | Multi-provider lyrics engine (LRCLIB, raw LRC parser), millisecond/centisecond parser, interactive click-to-seek, smooth auto-scroll, manual timing offset ($\pm 0.5\text{s}$), SQLite persistence |
 | **User Personalization** | Basic SQLite user auth, liked tracks, playlists | Cloud accounts, sync, custom presets, scrobbling | Full user accounts (JWT + bcrypt), per-user DSP presets, listening history, personalized recommendations, WebSocket room sync |
-| **UI & Branding** | BASA Neon/Glass UI (Dark, purple/cyan/emerald accents) | BitChord Material 3 / Haze frosted glass | **100% Strict Preservation of BASA Visual Identity**, embedding new DSP, Equalizer, Source, and Lyrics controls seamlessly into existing screens |
+| **UI & Branding** | BASA Neon/Glass UI (Dark, purple/cyan/emerald accents) | BASA Material 3 / Haze frosted glass | **100% Strict Preservation of BASA Visual Identity**, embedding new DSP, Equalizer, Source, and Lyrics controls seamlessly into existing screens |
 
 ---
 

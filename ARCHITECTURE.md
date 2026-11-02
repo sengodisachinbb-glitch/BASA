@@ -145,3 +145,32 @@ To ensure low latency and prevent packet bloat:
 
 - **Gapless Preloader**: Pre-buffers the next 1–2 audio streams in background elements.
 - **Auto-Retry & Fallback**: If an audio stream fails to load, `PlaybackManager` retries via local audio proxy. If still unreachable, it displays a toast notification (`⚠️ Unable to stream "Title". Skipping to next track...`) and advances automatically to the next queue item.
+
+---
+
+## 9. Google Gemini AI DJ Recommender
+
+BASA integrates Google Gemini Flash (`gemini-2.5-flash`) as an intelligent, zero-hallucination radio sequencing engine. Gemini only feeds the autoplay slice of the queue and never controls playback directly.
+
+### Data Flow & Zero-Hallucination Pipeline
+```mermaid
+flowchart TD
+    Trigger["Autoplay Refill Needed (<5 items)"] --> Filter["Candidate Pool Builder (~100-150 songs)<br/>SQLite: Language, Genre, Artists, Mood, Discovery"]
+    Filter --> Sanitize["Payload Sanitizer<br/>{id, title, artist, language, genre, mood, energy, bpm, year}<br/>(No user emails, PII, audio or lyrics)"]
+    Sanitize --> GeminiCall{"Gemini Available & Key Present?"}
+    GeminiCall -- No / Disabled --> LocalScorer["Local RadioEngine Scorer<br/>(Weighted metadata + behavioral adjustments)"]
+    GeminiCall -- Yes --> APIReq["Google Gemini Flash API Call<br/>(Structured JSON Schema Output, <3s Timeout)"]
+    APIReq -- Timeout (>3s) / Error --> LocalScorer
+    APIReq -- Success JSON --> Validate["Strict Candidate ID Whitelist Filter<br/>(Drop any hallucinated IDs)"]
+    Validate --> ArtistCheck["Max 2 Consecutive Artists Check & Shortfall Backfill"]
+    ArtistCheck --> QueueAppend["Atomic Append to PlayerQueueStore<br/>(source: AUTOPLAY, reason: 'DJ transition reason')"]
+    LocalScorer --> QueueAppend
+```
+
+### Key Guarantees
+1. **Candidate-First Whitelist**: Gemini is passed a candidate pool of ~100-150 valid songs from the local database. Gemini returns only IDs from this pool. Any returned ID not in the pool is immediately discarded.
+2. **Deterministic Fallback**: If Gemini fails, times out (>3 seconds), or is disabled (`GEMINI_RECOMMENDER_ENABLED=false`), the local `RadioEngine` scoring runs instantly so playback never stutters or stops.
+3. **Structured JSON Schema**: Uses `responseMimeType: "application/json"` and strict JSON schemas, guaranteeing validated `{ recommendations: [{ id, reason }] }` payloads.
+4. **Natural DJ Sequencing**: Orders songs with smooth tempo/energy curves, 70% familiarity / 30% discovery, language consistency, and max 2 consecutive songs per artist.
+5. **Unified Multi-Mode Radio**: `POST /api/recommendations/next` supports `song`, `artist`, `mood`, `language`, `genre`, and `history` radio modes.
+6. **Privacy & Security**: Gemini runs strictly on the backend. No API keys are sent to the client. User metadata is stripped of PII. Titles and artist names are sanitized to prevent prompt injection.

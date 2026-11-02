@@ -88,6 +88,15 @@ class PlaybackManager {
         this.isUpgrading = false;
         this.isExplicitSelection = false;
 
+        // Monotonic Load Tokens & Deterministic State Machine (Step 2, Step 3)
+        this.currentLoadId = 0;
+        this.activeQueueItemId = null;
+        this.activeAbortController = null;
+        this._activeAudioLoadId = -1;
+        this._endedFiredForLoadId = -1;
+        this._isTearingDownSource = false;
+        this.retryAttemptsForLoad = 0;
+
         // Bounded Error Recovery (Feature C)
         this.MAX_RECOVERY_ATTEMPTS = 2;
         this.recoveryAttempts = 0;
@@ -209,8 +218,30 @@ class PlaybackManager {
         console.log(`  QUALITY_TIER:        ${stream.qualityTier || track?.quality || (isLossless ? 'LOSSLESS' : 'STANDARD')}`);
     }
 
-    setPlayerState(newState) {
+    _debugLog(loadId, queueItemId, eventName, status, reason = '') {
+        if (typeof window !== 'undefined' && window.__BASA_DEBUG_PLAYBACK__) {
+            console.log(`[PlaybackDebug] [LoadId: ${loadId}] [Item: ${queueItemId || 'none'}] [Event: ${eventName}] -> ${status} ${reason ? `(${reason})` : ''}`);
+        }
+    }
+
+    setPlayerState(newState, reason = '') {
+        const prev = this.playerState;
         this.playerState = newState;
+
+        if (newState === 'PLAYING' || newState === 'PLAYING_FAST_SOURCE' || newState === 'PLAYING_LOSSLESS') {
+            this.isPlaying = true;
+            this.isLoadingTrack = false;
+        } else if (newState === 'PAUSED') {
+            this.isPlaying = false;
+            this.isLoadingTrack = false;
+        } else if (newState === 'LOADING' || newState === 'RESOLVING' || newState === 'RESOLVING_LOSSLESS' || newState === 'PREPARING_UPGRADE') {
+            this.isLoadingTrack = true;
+        } else if (newState === 'IDLE' || newState === 'ERROR') {
+            this.isPlaying = false;
+            this.isLoadingTrack = false;
+        }
+
+        this._debugLog(this.currentLoadId, this.activeQueueItemId, 'state_change', `${prev} -> ${newState}`, reason);
         console.log(`[PlaybackManager] State -> ${newState}`);
         if (this.onPlayerStateChange) {
             this.onPlayerStateChange(newState, this.currentTrack);
@@ -355,22 +386,21 @@ class PlaybackManager {
 
         // Bind to YT player state changes
         this.yt.onStateChangeCallback = (ytState) => {
-            if (this.provider !== 'youtube') return;
+            if (this.provider !== 'youtube' || this._isTearingDownSource) return;
+            if (this._activeAudioLoadId !== this.currentLoadId) {
+                this._debugLog(this._activeAudioLoadId, this.activeQueueItemId, 'yt_state_' + ytState, 'IGNORED', 'Stale loadId');
+                return;
+            }
 
             // ytState: -1 (unstarted), 0 (ended), 1 (playing), 2 (paused), 3 (buffering), 5 (video cued)
             if (ytState === 1) {
-                this.isPlaying = true;
-                this.isLoadingTrack = false;
                 this.consecutiveAutoSkips = 0;
-                if (this.playerState === 'RESOLVING' || this.playerState === 'IDLE') {
-                    this.setPlayerState(this.pendingUpgradeCandidate ? 'RESOLVING_LOSSLESS' : 'PLAYING_FAST_SOURCE');
-                }
-                if (this.onStateChange) this.onStateChange('playing');
+                this.setPlayerState(this.pendingUpgradeCandidate ? 'RESOLVING_LOSSLESS' : 'PLAYING_FAST_SOURCE', 'YouTube video playing');
+                if (this.onStateChange) this.onStateChange('playing', this.currentLoadId);
             } else if (ytState === 2) {
                 if (!this.isLoadingTrack && !this.isUpgrading) {
-                    this.isPlaying = false;
-                    this.setPlayerState('PAUSED');
-                    if (this.onStateChange) this.onStateChange('paused');
+                    this.setPlayerState('PAUSED', 'YouTube video paused');
+                    if (this.onStateChange) this.onStateChange('paused', this.currentLoadId);
                 }
             } else if (ytState === 5) {
                 if (this.isPlaying || this.isLoadingTrack) {
@@ -379,53 +409,66 @@ class PlaybackManager {
                     }
                 }
             } else if (ytState === 0) {
-                this.isPlaying = false;
-                this.isLoadingTrack = false;
+                if (this._endedFiredForLoadId === this.currentLoadId) {
+                    this._debugLog(this.currentLoadId, this.activeQueueItemId, 'yt_ended', 'IGNORED', 'Already fired for loadId');
+                    return;
+                }
+                this._endedFiredForLoadId = this.currentLoadId;
                 this.cancelPendingUpgrade();
-                this.setPlayerState('IDLE');
-                if (this.onStateChange) this.onStateChange('ended');
+                this.setPlayerState('IDLE', 'YouTube video ended naturally');
+                this._debugLog(this.currentLoadId, this.activeQueueItemId, 'yt_ended', 'ACCEPTED', 'Advancing track');
+                if (this.onStateChange) this.onStateChange('ended', this.currentLoadId);
             }
         };
 
         this.yt.onErrorCallback = (err) => {
-            if (this.provider === 'youtube') {
-                const isEmbedBlocked = (err === 150 || err === 101 || String(err) === '150' || String(err) === '101');
-                const reason = isEmbedBlocked ? 'Video embedding restricted by owner' : ('YouTube error: ' + err);
-                const recovered = this.attemptPlaybackRecovery(reason);
-                if (!recovered) {
-                    // Try asynchronous backend resolution if no local candidates exist
-                    const current = this.currentTrack;
-                    const canResolveBackend = current && (current.title || current.artist);
-                    
-                    if (canResolveBackend && !this._isResolvingFallback) {
-                        this._isResolvingFallback = true;
-                        const qTitle = encodeURIComponent(current.title || '');
-                        const qArtist = encodeURIComponent(current.artist || '');
-                        fetch(`/api/music/resolve/${encodeURIComponent(current.id || '')}?title=${qTitle}&artist=${qArtist}`)
-                            .then(r => r.json())
-                            .then(res => {
-                                this._isResolvingFallback = false;
-                                if (res && res.data && res.data.candidates) {
-                                    const viable = res.data.candidates.filter(c => 
-                                        c.source !== 'youtube' || (c.id !== current.id && c.videoId !== current.videoId)
-                                    );
-                                    if (viable.length > 0) {
-                                        console.log(`[PlaybackManager] Recovered alternative source: ${viable[0].source}`);
-                                        this._executeDirectLoad(viable[0]);
-                                        return;
-                                    }
-                                }
-                                this._handleUnrecoverableError(isEmbedBlocked ? `"${current.title || 'Track'}" is restricted from web playback.` : `YouTube playback error: ${err}`);
-                            })
-                            .catch(() => {
-                                this._isResolvingFallback = false;
-                                this._handleUnrecoverableError(isEmbedBlocked ? `"${current.title || 'Track'}" is restricted from web playback.` : `YouTube playback error: ${err}`);
-                            });
-                        return;
-                    }
+            if (this.provider !== 'youtube' || this._isTearingDownSource) return;
+            if (this._activeAudioLoadId !== this.currentLoadId) {
+                this._debugLog(this._activeAudioLoadId, this.activeQueueItemId, 'yt_error_' + err, 'IGNORED', 'Stale loadId');
+                return;
+            }
 
-                    this._handleUnrecoverableError(isEmbedBlocked ? `"${current?.title || 'Track'}" is restricted from web playback.` : `YouTube playback error: ${err}`);
+            const isEmbedBlocked = (err === 150 || err === 101 || String(err) === '150' || String(err) === '101');
+            const reason = isEmbedBlocked ? 'Video embedding restricted by owner' : ('YouTube error: ' + err);
+            const recovered = this.attemptPlaybackRecovery(reason);
+            if (!recovered) {
+                // Try asynchronous backend resolution if no local candidates exist
+                const current = this.currentTrack;
+                const canResolveBackend = current && (current.title || current.artist);
+                const activeLoadId = this.currentLoadId;
+                
+                if (canResolveBackend && !this._isResolvingFallback) {
+                    this._isResolvingFallback = true;
+                    const qTitle = encodeURIComponent(current.title || '');
+                    const qArtist = encodeURIComponent(current.artist || '');
+                    fetch(`/api/music/resolve/${encodeURIComponent(current.id || '')}?title=${qTitle}&artist=${qArtist}`, {
+                        signal: this.activeAbortController ? this.activeAbortController.signal : undefined
+                    })
+                        .then(r => r.json())
+                        .then(res => {
+                            this._isResolvingFallback = false;
+                            if (activeLoadId !== this.currentLoadId) return;
+                            if (res && res.data && res.data.candidates) {
+                                const viable = res.data.candidates.filter(c => 
+                                    c.source !== 'youtube' || (c.id !== current.id && c.videoId !== current.videoId)
+                                );
+                                if (viable.length > 0) {
+                                    console.log(`[PlaybackManager] Recovered alternative source: ${viable[0].source}`);
+                                    this._executeDirectLoad(viable[0]);
+                                    return;
+                                }
+                            }
+                            this._handleLoadError(activeLoadId, isEmbedBlocked ? `"${current.title || 'Track'}" is restricted from web playback.` : `YouTube playback error: ${err}`);
+                        })
+                        .catch(() => {
+                            this._isResolvingFallback = false;
+                            if (activeLoadId !== this.currentLoadId) return;
+                            this._handleLoadError(activeLoadId, isEmbedBlocked ? `"${current.title || 'Track'}" is restricted from web playback.` : `YouTube playback error: ${err}`);
+                        });
+                    return;
                 }
+
+                this._handleLoadError(activeLoadId, isEmbedBlocked ? `"${current?.title || 'Track'}" is restricted from web playback.` : `YouTube playback error: ${err}`);
             }
         };
 
@@ -442,8 +485,13 @@ class PlaybackManager {
     setupHTML5Audio(audioElement) {
         if (!audioElement) return;
 
+        const isCurrentActive = () => {
+            return !this._isTearingDownSource && (this._activeAudioLoadId === this.currentLoadId || this._activeAudioLoadId === -1);
+        };
+
         audioElement.addEventListener('play', () => {
             if (this.isHtml5Provider() && audioElement === this.audio) {
+                if (!isCurrentActive()) return;
                 this.isPlaying = true;
                 this.isLoadingTrack = false;
                 this.consecutiveAutoSkips = 0;
@@ -453,67 +501,95 @@ class PlaybackManager {
                         window.dspEngine.setSourceMetadata(this.currentTrack);
                     }).catch(e => console.warn('[PlaybackManager] DSP engine attach notice:', e.message));
                 }
-                if (this.playerState === 'RESOLVING' || this.playerState === 'IDLE') {
+                if (this.playerState === 'RESOLVING' || this.playerState === 'IDLE' || this.playerState === 'LOADING') {
                     const isLosslessTrack = Boolean(this.currentTrack?.isLossless || this.currentTrack?.quality === 'HI_RES_LOSSLESS');
-                    this.setPlayerState(isLosslessTrack ? 'PLAYING_LOSSLESS' : (this.pendingUpgradeCandidate ? 'RESOLVING_LOSSLESS' : 'PLAYING_FAST_SOURCE'));
+                    this.setPlayerState(isLosslessTrack ? 'PLAYING_LOSSLESS' : (this.pendingUpgradeCandidate ? 'RESOLVING_LOSSLESS' : 'PLAYING_FAST_SOURCE'), 'Audio play event');
                 }
-                if (this.onStateChange) this.onStateChange('playing');
+                if (this.onStateChange) this.onStateChange('playing', this.currentLoadId);
             }
         });
 
         audioElement.addEventListener('loadedmetadata', () => {
             if (audioElement === this.audio) {
+                if (!isCurrentActive()) {
+                    this._debugLog(this._activeAudioLoadId, this.activeQueueItemId, 'loadedmetadata', 'IGNORED', 'Stale load');
+                    return;
+                }
                 const dur = this.getDuration();
-                if (dur > 0 && this.onDurationChange) this.onDurationChange(dur);
-                if (this.onStateChange) this.onStateChange('loadedmetadata');
+                this._debugLog(this.currentLoadId, this.activeQueueItemId, 'loadedmetadata', 'ACCEPTED', `Duration: ${dur}s`);
+                if (dur > 0 && this.onDurationChange) this.onDurationChange(dur, this.currentLoadId);
+                if (this.onStateChange) this.onStateChange('loadedmetadata', this.currentLoadId);
             }
         });
 
         audioElement.addEventListener('durationchange', () => {
             if (audioElement === this.audio) {
+                if (!isCurrentActive()) return;
                 const dur = this.getDuration();
-                if (dur > 0 && this.onDurationChange) this.onDurationChange(dur);
+                if (dur > 0 && this.onDurationChange) this.onDurationChange(dur, this.currentLoadId);
             }
         });
 
         audioElement.addEventListener('timeupdate', () => {
             if (audioElement === this.audio) {
-                if (this.onTimeUpdate) this.onTimeUpdate(this.getCurrentTime(), this.getDuration());
+                if (!isCurrentActive()) return;
+                if (this.onTimeUpdate) this.onTimeUpdate(this.getCurrentTime(), this.getDuration(), this.currentLoadId);
             }
         });
 
         audioElement.addEventListener('progress', () => {
             if (audioElement === this.audio) {
+                if (!isCurrentActive()) return;
                 if (this.onProgress) this.onProgress(this.getBufferedFraction());
             }
         });
 
         audioElement.addEventListener('canplay', () => {
             if (audioElement === this.audio) {
+                if (!isCurrentActive()) return;
                 this.isLoadingTrack = false;
             }
         });
 
         audioElement.addEventListener('pause', () => {
             if (this.isHtml5Provider() && !this.isLoadingTrack && !this.isUpgrading && audioElement === this.audio) {
+                if (!isCurrentActive()) return;
                 this.isPlaying = false;
-                this.setPlayerState('PAUSED');
-                if (this.onStateChange) this.onStateChange('paused');
+                this.setPlayerState('PAUSED', 'Audio pause event');
+                if (this.onStateChange) this.onStateChange('paused', this.currentLoadId);
             }
         });
 
         audioElement.addEventListener('ended', () => {
             if (this.isHtml5Provider() && audioElement === this.audio) {
+                if (!isCurrentActive()) {
+                    this._debugLog(this._activeAudioLoadId, this.activeQueueItemId, 'ended', 'IGNORED', 'Stale or teardown event');
+                    return;
+                }
+                if (this.playerState !== 'PLAYING' && this.playerState !== 'PLAYING_FAST_SOURCE' && this.playerState !== 'PLAYING_LOSSLESS') {
+                    this._debugLog(this.currentLoadId, this.activeQueueItemId, 'ended', 'IGNORED', `Not in PLAYING state (${this.playerState})`);
+                    return;
+                }
+                if (this._endedFiredForLoadId === this.currentLoadId) {
+                    this._debugLog(this.currentLoadId, this.activeQueueItemId, 'ended', 'IGNORED', 'Already fired for this loadId');
+                    return;
+                }
+                this._endedFiredForLoadId = this.currentLoadId;
                 this.isPlaying = false;
                 this.isLoadingTrack = false;
                 this.cancelPendingUpgrade();
-                this.setPlayerState('IDLE');
-                if (this.onStateChange) this.onStateChange('ended');
+                this.setPlayerState('IDLE', 'Track reached natural end');
+                this._debugLog(this.currentLoadId, this.activeQueueItemId, 'ended', 'ACCEPTED', 'Advancing track');
+                if (this.onStateChange) this.onStateChange('ended', this.currentLoadId);
             }
         });
 
         audioElement.addEventListener('error', () => {
             if (this.isHtml5Provider() && audioElement === this.audio) {
+                if (!isCurrentActive()) {
+                    this._debugLog(this._activeAudioLoadId, this.activeQueueItemId, 'error', 'IGNORED', 'Stale or teardown event');
+                    return;
+                }
                 const err = audioElement.error;
 
                 // Fallback: If external CDN blocked with code 4 or 2, auto-retry via same-origin proxy
@@ -538,13 +614,27 @@ class PlaybackManager {
                     }
                 }
 
-                // Attempt bounded playback error recovery
-                const recovered = this.attemptPlaybackRecovery(errorMsg);
-                if (!recovered) {
-                    this._handleUnrecoverableError(errorMsg);
-                }
+                this._handleLoadError(this.currentLoadId, errorMsg);
             }
         });
+    }
+
+    _handleLoadError(loadId, errorMsg) {
+        if (loadId !== this.currentLoadId) {
+            this._debugLog(loadId, this.activeQueueItemId, 'load_error', 'IGNORED', 'Stale loadId');
+            return;
+        }
+
+        // Step 4: Retry once with alternative candidate or local audio proxy
+        if (this.retryAttemptsForLoad < 1) {
+            this.retryAttemptsForLoad++;
+            this._debugLog(loadId, this.activeQueueItemId, 'load_error_retry', 'ACCEPTED', 'Retrying load once');
+            const recovered = this.attemptPlaybackRecovery(errorMsg);
+            if (recovered) return;
+        }
+
+        this.retryAttemptsForLoad = 0;
+        this._handleUnrecoverableError(errorMsg, loadId);
     }
 
     /**
@@ -561,10 +651,11 @@ class PlaybackManager {
         if (this.consecutiveAutoSkips >= 3) {
             this.consecutiveAutoSkips = 0;
             const haltMsg = '⚠️ Playback paused: Multiple tracks in queue are restricted or unavailable.';
-            if (typeof showToast === 'function') {
+            if (this.onError) {
+                this.onError(haltMsg);
+            } else if (typeof showToast === 'function') {
                 showToast(haltMsg, 'warning');
             }
-            if (this.onError) this.onError(haltMsg);
             return;
         }
 
@@ -572,10 +663,11 @@ class PlaybackManager {
             ? `⚠️ ${errorMsg} Skipping to next track...`
             : `⚠️ Unable to stream "${this.currentTrack?.title || 'Track'}". Skipping to next track...`;
 
-        if (typeof showToast === 'function') {
+        if (this.onError) {
+            this.onError(skipMsg);
+        } else if (typeof showToast === 'function') {
             showToast(skipMsg, 'warning');
         }
-        if (this.onError) this.onError(skipMsg);
 
         // Gentle, non-glitchy transition: wait 1200ms before advancing
         if (typeof window !== 'undefined') {
@@ -636,17 +728,32 @@ class PlaybackManager {
     loadTrack(trackData, options = {}) {
         if (!trackData) return;
 
+        const loadId = typeof options.loadId === 'number' ? options.loadId : ++this.currentLoadId;
+        this.currentLoadId = loadId;
+        this.activeQueueItemId = options.queueItemId || trackData.queueItemId || trackData.id;
+        this._endedFiredForLoadId = -1;
+        this.retryAttemptsForLoad = 0;
+
+        if (options.userInitiated || options.explicit) {
+            this.consecutiveAutoSkips = 0;
+        }
+
         // Cancel previous pending upgrades
         this.cancelPendingUpgrade();
+
+        // Abort in-flight network requests from previous load (Step 2)
+        if (this.activeAbortController) {
+            try { this.activeAbortController.abort(); } catch (e) {}
+        }
+        this.activeAbortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
 
         // Reset recovery state for new canonical track
         this.recoveryAttempts = 0;
         this.attemptedCandidateIds.clear();
         this.currentCanonicalTrack = trackData;
 
-        this.isLoadingTrack = true;
-        this.isPlaying = true;
-        this.setPlayerState('RESOLVING');
+        this._debugLog(loadId, this.activeQueueItemId, 'loadTrack', 'ACCEPTED', trackData.title);
+        this.setPlayerState('LOADING', `Loading "${trackData.title}"`);
 
         // 1. Explicit Candidate Selection (Mode B)
         if (options.explicit === true) {
@@ -784,28 +891,33 @@ class PlaybackManager {
         else if (source === 'local' || (trackData.preview && trackData.preview.includes('/api/upload/stream/'))) targetProvider = 'local';
 
         // Provider handoff: pause previous provider cleanly with zero-click micro-fade
-        if (previousProvider !== targetProvider) {
-            if (previousProvider === 'youtube' && this.yt && this.yt.pause) {
-                this.yt.pause();
-            } else if (this.audio) {
-                try {
-                    if (!this.audio.paused && this.audio.volume > 0) {
-                        this.audio.volume = Math.max(0, this.audio.volume * 0.15);
-                    }
-                } catch (e) {}
-                this.audio.pause();
-                this.audio.removeAttribute('src');
-                try { this.audio.load(); } catch (e) {}
+        this._isTearingDownSource = true;
+        try {
+            if (previousProvider !== targetProvider) {
+                if (previousProvider === 'youtube' && this.yt && this.yt.pause) {
+                    this.yt.pause();
+                } else if (this.audio) {
+                    try {
+                        if (!this.audio.paused && this.audio.volume > 0) {
+                            this.audio.volume = Math.max(0, this.audio.volume * 0.15);
+                        }
+                    } catch (e) {}
+                    this.audio.pause();
+                    this.audio.removeAttribute('src');
+                    try { this.audio.load(); } catch (e) {}
+                }
+            } else if (this.isHtml5Provider()) {
+                if (this.audio) {
+                    try {
+                        if (!this.audio.paused && this.audio.volume > 0) {
+                            this.audio.volume = Math.max(0, this.audio.volume * 0.15);
+                        }
+                    } catch (e) {}
+                    this.audio.pause();
+                }
             }
-        } else if (this.isHtml5Provider()) {
-            if (this.audio) {
-                try {
-                    if (!this.audio.paused && this.audio.volume > 0) {
-                        this.audio.volume = Math.max(0, this.audio.volume * 0.15);
-                    }
-                } catch (e) {}
-                this.audio.pause();
-            }
+        } finally {
+            this._isTearingDownSource = false;
         }
 
         // Layer 8 Defense-in-depth: Authoritative Shorts Check
@@ -894,18 +1006,21 @@ class PlaybackManager {
 
         if (targetProvider === 'lossless') {
             this.provider = 'lossless';
+            this._activeAudioLoadId = this.currentLoadId;
             try { this.audio.crossOrigin = 'anonymous'; } catch (e) {}
             this.audio.src = streamUrl;
             this.audio.load();
             this.play();
         } else if (targetProvider === 'archive') {
             this.provider = 'archive';
+            this._activeAudioLoadId = this.currentLoadId;
             try { this.audio.crossOrigin = 'anonymous'; } catch (e) {}
             this.audio.src = streamUrl;
             this.audio.load();
             this.play();
         } else if (targetProvider === 'jiosaavn') {
             this.provider = 'jiosaavn';
+            this._activeAudioLoadId = this.currentLoadId;
             let effectiveUrl = streamUrl;
             if (trackData.id && String(trackData.id).startsWith('saavn_')) {
                 effectiveUrl = `/api/music/jiosaavn-stream/${encodeURIComponent(trackData.id)}`;
@@ -919,6 +1034,7 @@ class PlaybackManager {
             this.play();
         } else if (targetProvider === 'local') {
             this.provider = 'local';
+            this._activeAudioLoadId = this.currentLoadId;
             try { this.audio.crossOrigin = 'anonymous'; } catch (e) {}
             this.audio.src = streamUrl;
             this.audio.load();
@@ -928,6 +1044,7 @@ class PlaybackManager {
             // Check if streamUrl is actually a direct audio stream (e.g. JioSaavn or local stream)
             if (streamUrl && (streamUrl.startsWith('http') || streamUrl.startsWith('/api/'))) {
                 this.provider = 'jiosaavn';
+                this._activeAudioLoadId = this.currentLoadId;
                 let effectiveUrl = streamUrl;
                 if (trackData.id && String(trackData.id).startsWith('saavn_')) {
                     effectiveUrl = `/api/music/jiosaavn-stream/${encodeURIComponent(trackData.id)}`;
@@ -947,9 +1064,16 @@ class PlaybackManager {
             if (!isValidYouTubeId) {
                 // VideoId is invalid or a placeholder string; resolve via searchOrchestrator
                 console.log(`[PlaybackManager] Invalid YouTube videoId "${videoId}" for "${trackData.title}". Resolving playable stream...`);
-                fetch(`/api/music/resolve/${encodeURIComponent(trackData.id || '')}?title=${encodeURIComponent(trackData.title || '')}&artist=${encodeURIComponent(trackData.artist || '')}`)
+                const resolveLoadId = this.currentLoadId;
+                fetch(`/api/music/resolve/${encodeURIComponent(trackData.id || '')}?title=${encodeURIComponent(trackData.title || '')}&artist=${encodeURIComponent(trackData.artist || '')}`, {
+                    signal: this.activeAbortController ? this.activeAbortController.signal : undefined
+                })
                     .then(r => r.json())
                     .then(res => {
+                        if (resolveLoadId !== this.currentLoadId) {
+                            this._debugLog(resolveLoadId, this.activeQueueItemId, 'resolve_result', 'DISCARDED', 'Stale resolve');
+                            return;
+                        }
                         if (res && res.data && res.data.fastestPlayableCandidate) {
                             const resolvedCand = res.data.fastestPlayableCandidate;
                             this._executeDirectLoad(resolvedCand);
@@ -960,6 +1084,7 @@ class PlaybackManager {
                         }
                     })
                     .catch(err => {
+                        if (resolveLoadId !== this.currentLoadId || err.name === 'AbortError') return;
                         console.error('[PlaybackManager] Auto-resolve failed:', err.message);
                         this.isLoadingTrack = false;
                         this.setPlayerState('ERROR');
@@ -969,6 +1094,7 @@ class PlaybackManager {
             }
 
             this.provider = 'youtube';
+            this._activeAudioLoadId = this.currentLoadId;
             if (this.yt) {
                 this.yt.loadAndPlay(videoId);
             } else {

@@ -10,12 +10,14 @@
 
 const defaultConfig = require('../../config/recommendationConfig');
 const { defaultScorer } = require('./scoringEngine');
+const { defaultRecommender } = require('./geminiRecommender');
 
 class RadioEngine {
-    constructor(db, scorer = null, config = null) {
+    constructor(db, scorer = null, config = null, gemini = null) {
         this.db = db;
         this.scorer = scorer || defaultScorer;
         this.config = config || defaultConfig;
+        this.gemini = gemini || defaultRecommender;
     }
 
     /**
@@ -48,6 +50,71 @@ class RadioEngine {
     _getOne(sql, params = []) {
         const rows = this._getAll(sql, params);
         return rows.length > 0 ? rows[0] : null;
+    }
+
+    /**
+     * Builds candidate pool (~100-150 songs) using fast indexed queries
+     */
+    getCandidatePool(seedSong, excludeIds = []) {
+        const poolMap = new Map();
+        const excludeSet = new Set(excludeIds || []);
+        if (seedSong && seedSong.id) excludeSet.add(seedSong.id);
+
+        const addCandidates = (rows) => {
+            for (const r of rows) {
+                if (r && r.id && !excludeSet.has(r.id) && !poolMap.has(r.id)) {
+                    poolMap.set(r.id, r);
+                }
+            }
+        };
+
+        const excPlaceholders = excludeSet.size > 0 
+            ? `AND id NOT IN (${Array.from(excludeSet).map(() => '?').join(',')})`
+            : '';
+        const excParams = Array.from(excludeSet);
+
+        if (seedSong) {
+            // 1. Same language candidates (top 60)
+            if (seedSong.language) {
+                const langRows = this._getAll(
+                    `SELECT * FROM songs WHERE language LIKE ? ${excPlaceholders} ORDER BY play_count DESC, like_count DESC LIMIT 60`,
+                    [`%${seedSong.language}%`, ...excParams]
+                );
+                addCandidates(langRows);
+            }
+
+            // 2. Same genre or artist candidates (top 40)
+            if (seedSong.genre || seedSong.artist) {
+                const genreRows = this._getAll(
+                    `SELECT * FROM songs WHERE (genre = ? OR artist LIKE ?) ${excPlaceholders} ORDER BY play_count DESC, like_count DESC LIMIT 40`,
+                    [seedSong.genre || '', `%${seedSong.artist || ''}%`, ...excParams]
+                );
+                addCandidates(genreRows);
+            }
+
+            // 3. Same mood candidates (top 30)
+            if (seedSong.mood) {
+                const moodRows = this._getAll(
+                    `SELECT * FROM songs WHERE mood = ? ${excPlaceholders} ORDER BY play_count DESC, like_count DESC LIMIT 30`,
+                    [seedSong.mood.toLowerCase(), ...excParams]
+                );
+                addCandidates(moodRows);
+            }
+        }
+
+        // 4. Discovery songs (popular songs across catalog)
+        const discoveryRows = this._getAll(
+            `SELECT * FROM songs WHERE 1=1 ${excPlaceholders} ORDER BY play_count DESC, like_count DESC LIMIT 40`,
+            excParams
+        );
+        addCandidates(discoveryRows);
+
+        if (poolMap.size < 30) {
+            const all = this.getAllSongs(Array.from(excludeSet));
+            addCandidates(all);
+        }
+
+        return Array.from(poolMap.values()).slice(0, 150);
     }
 
     /**
@@ -189,6 +256,193 @@ class RadioEngine {
         }
 
         return finalQueue;
+    }
+
+    /**
+     * Async recommendation pipeline integrating Gemini AI with local fallback
+     */
+    async getNextRecommendationsAsync(seedSongId, options = {}) {
+        const limit = Number(options.limit) || this.config.diversity.defaultBatchLimit || 20;
+        const excludeIds = new Set(options.exclude || []);
+        const userHistory = options.userHistory || {};
+
+        // 1. Guardrail: Add last 50 plays to exclusion set
+        const recent50 = (userHistory.recentlyPlayedIds || []).slice(0, this.config.diversity.minRepeatDistance || 50);
+        for (const id of recent50) {
+            excludeIds.add(id);
+        }
+
+        // 2. Fetch seed song(s) for natural radio drift
+        const seedSong = this._getOne('SELECT * FROM songs WHERE id = ?', [seedSongId]);
+        if (!seedSong) {
+            return this.getPopularFallback(limit, Array.from(excludeIds));
+        }
+        excludeIds.add(seedSong.id);
+
+        let seedSongs = [seedSong];
+        if (Array.isArray(options.seedIds) && options.seedIds.length > 0) {
+            const rawOtherSeeds = options.seedIds
+                .filter(id => id && id !== seedSongId)
+                .slice(-2);
+            for (const otherId of rawOtherSeeds) {
+                const s = this._getOne('SELECT * FROM songs WHERE id = ?', [otherId]);
+                if (s) {
+                    seedSongs.unshift(s);
+                    excludeIds.add(s.id);
+                }
+            }
+        }
+
+        // 3. Build candidate pool (~100-150 songs)
+        const candidates = this.getCandidatePool(seedSong, Array.from(excludeIds));
+        if (candidates.length === 0) {
+            return this.getPopularFallback(limit, Array.from(excludeIds), seedSong.language);
+        }
+
+        // 4. Try Gemini Recommender if available & not explicitly bypassed
+        if (this.gemini && this.gemini.isAvailable() && options.bypassGemini !== true) {
+            try {
+                const geminiResult = await this.gemini.getRecommendations({
+                    seed: seedSong,
+                    seeds: seedSongs,
+                    candidates,
+                    tasteProfile: userHistory,
+                    mode: options.mode || 'song',
+                    limit,
+                    excludeIds: Array.from(excludeIds),
+                    userId: options.userId || 'anonymous'
+                });
+
+                if (geminiResult && Array.isArray(geminiResult.recommendations) && geminiResult.recommendations.length > 0) {
+                    const candidateMap = new Map(candidates.map(c => [String(c.id), c]));
+                    const geminiQueue = [];
+                    const maxConsec = this.config.diversity.maxConsecutiveArtist || 2;
+                    let consecutiveArtist = '';
+                    let consecutiveCount = 0;
+
+                    for (const item of geminiResult.recommendations) {
+                        const song = candidateMap.get(String(item.id));
+                        if (!song) continue; // Reject any hallucinated ID
+
+                        const normArtist = String(song.artist || '').toLowerCase().trim();
+                        if (normArtist === consecutiveArtist) {
+                            if (consecutiveCount >= maxConsec) continue;
+                            consecutiveCount++;
+                        } else {
+                            consecutiveArtist = normArtist;
+                            consecutiveCount = 1;
+                        }
+
+                        geminiQueue.push({
+                            ...song,
+                            recommendationReason: item.reason || 'Curated recommendation based on your listening flow.',
+                            aiCurated: true
+                        });
+                    }
+
+                    // If Gemini returned enough valid songs, return them
+                    if (geminiQueue.length >= limit) {
+                        return geminiQueue.slice(0, limit);
+                    }
+
+                    // If shortfall, fill with local scoring engine
+                    if (geminiQueue.length > 0) {
+                        const filledExcludes = [...Array.from(excludeIds), ...geminiQueue.map(s => s.id)];
+                        const localFill = this.getNextRecommendations(seedSongId, {
+                            ...options,
+                            exclude: filledExcludes,
+                            limit: limit - geminiQueue.length
+                        });
+                        return [...geminiQueue, ...localFill];
+                    }
+                }
+            } catch (err) {
+                console.warn('[RadioEngine] Gemini recommendation failed, falling back to local engine:', err.message);
+            }
+        }
+
+        // 5. Fallback: Local heuristic scoring
+        return this.getNextRecommendations(seedSongId, options);
+    }
+
+    /**
+     * Unified multi-mode radio generator (song, artist, mood, language, genre, history)
+     */
+    async getRadioByModeAsync(mode = 'song', seedInput, limit = 25, userHistory = {}, options = {}) {
+        const normMode = String(mode || 'song').toLowerCase().trim();
+
+        // 1. Song Radio
+        if (normMode === 'song') {
+            const songId = typeof seedInput === 'object' ? seedInput.id : seedInput;
+            return this.getNextRecommendationsAsync(songId, { ...options, mode: 'song', limit, userHistory });
+        }
+
+        // 2. Artist Radio
+        if (normMode === 'artist') {
+            const artistName = typeof seedInput === 'object' ? seedInput.artist || seedInput.name : seedInput;
+            const topSong = this._getOne(
+                'SELECT * FROM songs WHERE artist LIKE ? ORDER BY play_count DESC, like_count DESC LIMIT 1',
+                [`%${artistName}%`]
+            );
+            if (topSong) {
+                return this.getNextRecommendationsAsync(topSong.id, { ...options, mode: 'artist', limit, userHistory });
+            }
+            return this.getPopularFallback(limit);
+        }
+
+        // 3. Mood Radio
+        if (normMode === 'mood') {
+            const mood = typeof seedInput === 'object' ? seedInput.mood || seedInput.name : seedInput;
+            const topSong = this._getOne(
+                'SELECT * FROM songs WHERE mood = ? ORDER BY play_count DESC, like_count DESC LIMIT 1',
+                [String(mood || '').toLowerCase()]
+            );
+            if (topSong) {
+                return this.getNextRecommendationsAsync(topSong.id, { ...options, mode: 'mood', limit, userHistory });
+            }
+            return this.getMoodRadio(mood, limit, userHistory);
+        }
+
+        // 4. Language Radio
+        if (normMode === 'language') {
+            const lang = typeof seedInput === 'object' ? seedInput.language || seedInput.name : seedInput;
+            const topSong = this._getOne(
+                'SELECT * FROM songs WHERE language LIKE ? ORDER BY play_count DESC, like_count DESC LIMIT 1',
+                [`%${lang}%`]
+            );
+            if (topSong) {
+                return this.getNextRecommendationsAsync(topSong.id, { ...options, mode: 'language', limit, userHistory });
+            }
+            return this.getLanguageRadio(lang, limit, userHistory);
+        }
+
+        // 5. Genre Radio
+        if (normMode === 'genre') {
+            const genre = typeof seedInput === 'object' ? seedInput.genre || seedInput.name : seedInput;
+            const topSong = this._getOne(
+                'SELECT * FROM songs WHERE genre LIKE ? ORDER BY play_count DESC, like_count DESC LIMIT 1',
+                [`%${genre}%`]
+            );
+            if (topSong) {
+                return this.getNextRecommendationsAsync(topSong.id, { ...options, mode: 'genre', limit, userHistory });
+            }
+            return this.getPopularFallback(limit);
+        }
+
+        // 6. History-based Radio
+        if (normMode === 'history') {
+            const recentId = userHistory.recentlyPlayedIds?.[0] || userHistory.likedSongIds?.values().next().value;
+            if (recentId) {
+                return this.getNextRecommendationsAsync(recentId, { ...options, mode: 'history', limit, userHistory });
+            }
+            return this.getPopularFallback(limit);
+        }
+
+        const fallbackSeedId = typeof seedInput === 'object' ? seedInput.id : seedInput;
+        if (fallbackSeedId) {
+            return this.getNextRecommendationsAsync(fallbackSeedId, { ...options, mode: 'song', limit, userHistory });
+        }
+        return this.getPopularFallback(limit);
     }
 
     /**

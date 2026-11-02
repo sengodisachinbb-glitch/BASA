@@ -36,6 +36,18 @@ module.exports = {
         discoveryRatio: 0.30,        // 30% discovery songs (novel, genre-adjacent, trending)
         autoQueueRefillThreshold: 5, // Refill autoQueue when count drops below 5
         defaultBatchLimit: 20        // Default batch recommendation size
+    },
+
+    // 4. Google Gemini AI Recommender Settings
+    gemini: {
+        enabled: process.env.GEMINI_RECOMMENDER_ENABLED !== 'false',
+        model: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+        timeoutMs: parseInt(process.env.GEMINI_TIMEOUT_MS, 10) || 3000,
+        temperature: 0.35,
+        maxCandidatesToPrompt: 120, // Cap candidate list payload size
+        cacheTtlMs: 5 * 60 * 1000,   // 5 minutes in-memory cache
+        rateLimitPerMinute: 30,     // Per user/session
+        fallbackOnTimeout: true
     }
 };
 

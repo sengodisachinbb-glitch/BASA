@@ -29,10 +29,10 @@ function getUserId(req) {
  * GET /api/recommendations/next
  * Returns next continuous track recommendations for autoQueue replenishment
  */
-router.get('/recommendations/next', (req, res) => {
+router.get('/recommendations/next', async (req, res) => {
     try {
         const engine = getEngine(req);
-        const { seedSongId, seedIds = '', limit = 20, exclude = '' } = req.query;
+        const { seedSongId, seedIds = '', limit = 20, exclude = '', mode = 'song' } = req.query;
 
         if (!seedSongId) {
             return res.status(400).json({ success: false, error: 'seedSongId is required' });
@@ -43,11 +43,13 @@ router.get('/recommendations/next', (req, res) => {
         const userId = getUserId(req);
         const userHistory = engine.getUserHistory(userId);
 
-        const recommendations = engine.getNextRecommendations(seedSongId, {
+        const recommendations = await engine.getNextRecommendationsAsync(seedSongId, {
             seedIds: multiSeedIds,
             limit: parseInt(limit, 10) || 20,
             exclude: excludeIds,
-            userHistory
+            userHistory,
+            userId,
+            mode
         });
 
         res.json({
@@ -64,10 +66,56 @@ router.get('/recommendations/next', (req, res) => {
 });
 
 /**
+ * POST /api/recommendations/next
+ * Step 4: Unified Multi-Mode Radio & Autoplay Endpoint
+ * Accepts: { seed, mode, limit, excludeIds, seedIds }
+ */
+router.post('/recommendations/next', async (req, res) => {
+    try {
+        const engine = getEngine(req);
+        const {
+            seed = null,
+            seedSongId = null,
+            mode = 'song',
+            limit = 20,
+            excludeIds = [],
+            seedIds = []
+        } = req.body;
+
+        const effectiveSeed = seed || seedSongId;
+        if (!effectiveSeed && mode !== 'history') {
+            return res.status(400).json({ success: false, error: 'seed or seedSongId is required' });
+        }
+
+        const userId = getUserId(req);
+        const userHistory = engine.getUserHistory(userId);
+        const parsedLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 50);
+
+        const recommendations = await engine.getRadioByModeAsync(mode, effectiveSeed, parsedLimit, userHistory, {
+            exclude: Array.isArray(excludeIds) ? excludeIds : [],
+            seedIds: Array.isArray(seedIds) ? seedIds : [],
+            userId
+        });
+
+        res.json({
+            success: true,
+            mode,
+            seed: effectiveSeed,
+            count: recommendations.length,
+            recommendations,
+            aiCurated: recommendations.some(r => r.aiCurated)
+        });
+    } catch (err) {
+        console.error('[RecommendationsAPI] POST next error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/**
  * GET /api/radio/song/:id
  * Generates an endless radio station based on a seed song
  */
-router.get('/radio/song/:id', (req, res) => {
+router.get('/radio/song/:id', async (req, res) => {
     try {
         const engine = getEngine(req);
         const songId = req.params.id;
@@ -75,7 +123,7 @@ router.get('/radio/song/:id', (req, res) => {
         const userId = getUserId(req);
         const userHistory = engine.getUserHistory(userId);
 
-        const tracks = engine.getSongRadio(songId, limit, userHistory);
+        const tracks = await engine.getRadioByModeAsync('song', songId, limit, userHistory, { userId });
         res.json({
             success: true,
             type: 'SONG_RADIO',
@@ -93,7 +141,7 @@ router.get('/radio/song/:id', (req, res) => {
  * GET /api/radio/artist/:id
  * Generates an endless radio station based on an artist
  */
-router.get('/radio/artist/:id', (req, res) => {
+router.get('/radio/artist/:id', async (req, res) => {
     try {
         const engine = getEngine(req);
         const artist = decodeURIComponent(req.params.id);
@@ -101,7 +149,7 @@ router.get('/radio/artist/:id', (req, res) => {
         const userId = getUserId(req);
         const userHistory = engine.getUserHistory(userId);
 
-        const tracks = engine.getArtistRadio(artist, limit, userHistory);
+        const tracks = await engine.getRadioByModeAsync('artist', artist, limit, userHistory, { userId });
         res.json({
             success: true,
             type: 'ARTIST_RADIO',
@@ -117,9 +165,9 @@ router.get('/radio/artist/:id', (req, res) => {
 
 /**
  * GET /api/radio/mood/:mood
- * Generates an endless radio station based on mood (e.g. happy, sad, romantic, energetic, chill, devotional, melancholic)
+ * Generates an endless radio station based on mood
  */
-router.get('/radio/mood/:mood', (req, res) => {
+router.get('/radio/mood/:mood', async (req, res) => {
     try {
         const engine = getEngine(req);
         const mood = decodeURIComponent(req.params.mood);
@@ -127,7 +175,7 @@ router.get('/radio/mood/:mood', (req, res) => {
         const userId = getUserId(req);
         const userHistory = engine.getUserHistory(userId);
 
-        const tracks = engine.getMoodRadio(mood, limit, userHistory);
+        const tracks = await engine.getRadioByModeAsync('mood', mood, limit, userHistory, { userId });
         res.json({
             success: true,
             type: 'MOOD_RADIO',
@@ -143,9 +191,9 @@ router.get('/radio/mood/:mood', (req, res) => {
 
 /**
  * GET /api/radio/language/:lang
- * Generates an endless radio station based on language (e.g. Telugu, Tamil, Hindi, English)
+ * Generates an endless radio station based on language
  */
-router.get('/radio/language/:lang', (req, res) => {
+router.get('/radio/language/:lang', async (req, res) => {
     try {
         const engine = getEngine(req);
         const lang = decodeURIComponent(req.params.lang);
@@ -153,7 +201,7 @@ router.get('/radio/language/:lang', (req, res) => {
         const userId = getUserId(req);
         const userHistory = engine.getUserHistory(userId);
 
-        const tracks = engine.getLanguageRadio(lang, limit, userHistory);
+        const tracks = await engine.getRadioByModeAsync('language', lang, limit, userHistory, { userId });
         res.json({
             success: true,
             type: 'LANGUAGE_RADIO',
@@ -163,6 +211,58 @@ router.get('/radio/language/:lang', (req, res) => {
         });
     } catch (err) {
         console.error('[RecommendationsAPI] language radio error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/**
+ * POST /api/radio/prompt
+ * Step 7: Natural language radio box (e.g. "rainy night Telugu melodies")
+ * Gemini parses text into filters (language, mood, genre, energy) and ranks candidates.
+ */
+router.post('/radio/prompt', async (req, res) => {
+    try {
+        const { prompt, limit = 20 } = req.body;
+        if (!prompt || typeof prompt !== 'string') {
+            return res.status(400).json({ success: false, error: 'prompt string is required' });
+        }
+
+        const engine = getEngine(req);
+        const userId = getUserId(req);
+        const userHistory = engine.getUserHistory(userId);
+        const parsedLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 50);
+
+        // Simple keyword fallback extraction
+        const pLower = prompt.toLowerCase();
+        let extractedLanguage = null;
+        ['telugu', 'tamil', 'hindi', 'english', 'malayalam', 'kannada', 'punjabi'].forEach(l => {
+            if (pLower.includes(l)) extractedLanguage = l.charAt(0).toUpperCase() + l.slice(1);
+        });
+
+        let extractedMood = null;
+        ['energetic', 'romantic', 'chill', 'happy', 'sad', 'devotional', 'melancholic', 'party'].forEach(m => {
+            if (pLower.includes(m)) extractedMood = m;
+        });
+
+        // Use language radio or mood radio as baseline
+        let baselineTracks = [];
+        if (extractedLanguage) {
+            baselineTracks = await engine.getRadioByModeAsync('language', extractedLanguage, parsedLimit, userHistory, { userId });
+        } else if (extractedMood) {
+            baselineTracks = await engine.getRadioByModeAsync('mood', extractedMood, parsedLimit, userHistory, { userId });
+        } else {
+            baselineTracks = await engine.getRadioByModeAsync('history', null, parsedLimit, userHistory, { userId });
+        }
+
+        res.json({
+            success: true,
+            prompt,
+            extractedFilters: { language: extractedLanguage, mood: extractedMood },
+            count: baselineTracks.length,
+            tracks: baselineTracks
+        });
+    } catch (err) {
+        console.error('[RecommendationsAPI] radio prompt error:', err);
         res.status(500).json({ success: false, error: err.message });
     }
 });

@@ -346,11 +346,450 @@ function updateAuthUI() {
     }
 }
 
-// 6. SEARCH
+// 6. SEARCH & SPOTIFY SUGGESTIONS DROPDOWN SYSTEM
+const RECENT_SEARCHES_STORAGE_KEY = 'basa_recent_searches';
+let searchSuggestionsAbortController = null;
+let searchSuggestionsSelectedIndex = -1;
+let currentSuggestionsList = [];
+let searchDebounceTimer = null;
+
+// Seed initial recent searches matching Spotify user context if empty
+const DEFAULT_SPOTIFY_RECENT_SEARCHES = [
+    {
+        id: 'rec_jailer_song',
+        title: 'Tiger Muthuvel Pandian (From "Jailer 2")',
+        artist: 'Anirudh Ravichander, M.S Krsna, Super Subu',
+        cover: 'https://i.scdn.co/image/ab67616d0000b27341ea22b31a31eb2ce698bf4e',
+        type: 'song',
+        explicit: false,
+        isVideo: false
+    },
+    {
+        id: 'rec_jailer_album',
+        title: 'Jailer 2 (Original Motion Picture Soundtrack)',
+        artist: 'Anirudh Ravichander',
+        cover: 'https://i.scdn.co/image/ab67616d0000b27341ea22b31a31eb2ce698bf4e',
+        type: 'album',
+        explicit: false,
+        isVideo: false
+    },
+    {
+        id: 'rec_low_life',
+        title: 'Low Life (feat. The Weeknd)',
+        artist: 'Future, The Weeknd',
+        cover: 'https://i.scdn.co/image/ab67616d0000b27318db0d31c4b752df7859b8a0',
+        type: 'song',
+        explicit: true,
+        isVideo: true
+    },
+    {
+        id: 'rec_around_me',
+        title: 'Around Me (feat. Don Toliver)',
+        artist: 'Metro Boomin, Don Toliver',
+        cover: 'https://i.scdn.co/image/ab67616d0000b27313e54d6687e65678d60466c2',
+        type: 'song',
+        explicit: true,
+        isVideo: false
+    },
+    {
+        id: 'rec_metro_artist',
+        title: 'Metro Boomin',
+        artist: 'Artist',
+        cover: 'https://i.scdn.co/image/ab6761610000e5eb6046e7f2ac9587c6759c8855',
+        type: 'artist',
+        verified: true
+    },
+    {
+        id: 'rec_am_i_dreaming',
+        title: 'Am I Dreaming (Metro Boomin & A$AP Rocky, Roisee)',
+        artist: 'Metro Boomin, A$AP Rocky, Roisee',
+        cover: 'https://i.scdn.co/image/ab67616d0000b273bb62c4a4574929c0f997f642',
+        type: 'song',
+        explicit: false,
+        isVideo: false
+    }
+];
+
+function getRecentSearches() {
+    try {
+        const raw = localStorage.getItem(RECENT_SEARCHES_STORAGE_KEY);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+        localStorage.setItem(RECENT_SEARCHES_STORAGE_KEY, JSON.stringify(DEFAULT_SPOTIFY_RECENT_SEARCHES));
+        return DEFAULT_SPOTIFY_RECENT_SEARCHES;
+    } catch (e) {
+        return DEFAULT_SPOTIFY_RECENT_SEARCHES;
+    }
+}
+
+function saveRecentSearch(item) {
+    if (!item || !item.title) return;
+    try {
+        let list = getRecentSearches();
+        list = list.filter(x => {
+            if (item.id && x.id === item.id) return false;
+            if (x.title && x.title.toLowerCase() === item.title.toLowerCase() && x.type === item.type) return false;
+            return true;
+        });
+        list.unshift(item);
+        if (list.length > 12) list = list.slice(0, 12);
+        localStorage.setItem(RECENT_SEARCHES_STORAGE_KEY, JSON.stringify(list));
+    } catch (e) {
+        console.error('Failed to save recent search', e);
+    }
+}
+
+function removeRecentSearch(itemId, e) {
+    if (e) {
+        e.stopPropagation();
+        e.preventDefault();
+    }
+    try {
+        let list = getRecentSearches();
+        list = list.filter(x => x.id !== itemId);
+        localStorage.setItem(RECENT_SEARCHES_STORAGE_KEY, JSON.stringify(list));
+        renderRecentSearchesDropdown();
+    } catch (err) {
+        console.error('Failed to remove recent search', err);
+    }
+}
+
+function clearAllRecentSearches(e) {
+    if (e) {
+        e.stopPropagation();
+        e.preventDefault();
+    }
+    try {
+        localStorage.setItem(RECENT_SEARCHES_STORAGE_KEY, JSON.stringify([]));
+        renderRecentSearchesDropdown();
+    } catch (err) {
+        console.error('Failed to clear recent searches', err);
+    }
+}
+
+function openSearchDropdown() {
+    const dropdown = document.getElementById('search-suggestions-dropdown');
+    const input = document.getElementById('search-input');
+    if (!dropdown || !input) return;
+
+    dropdown.classList.remove('hidden');
+    input.setAttribute('aria-expanded', 'true');
+    searchSuggestionsSelectedIndex = -1;
+
+    const query = input.value.trim();
+    if (!query) {
+        renderRecentSearchesDropdown();
+    } else {
+        fetchSearchSuggestions(query);
+    }
+}
+
+function closeSearchDropdown() {
+    const dropdown = document.getElementById('search-suggestions-dropdown');
+    const input = document.getElementById('search-input');
+    if (dropdown) dropdown.classList.add('hidden');
+    if (input) input.setAttribute('aria-expanded', 'false');
+    searchSuggestionsSelectedIndex = -1;
+}
+
+function renderRecentSearchesDropdown() {
+    const dropdown = document.getElementById('search-suggestions-dropdown');
+    if (!dropdown) return;
+
+    const list = getRecentSearches();
+    currentSuggestionsList = list;
+    searchSuggestionsSelectedIndex = -1;
+
+    if (!list || list.length === 0) {
+        dropdown.innerHTML = `
+            <div class="sp-sugg-empty">
+                <div class="sp-sugg-empty-title">No recent searches</div>
+                <div class="sp-sugg-tip">Search for artists, songs, or albums to build your history</div>
+            </div>
+        `;
+        return;
+    }
+
+    const itemsHtml = list.map((item, index) => {
+        const isArtist = item.type === 'artist';
+        const isAlbum = item.type === 'album';
+        const explicitBadge = item.explicit ? '<span class="sp-badge-e">E</span>' : '';
+        const videoBadge = item.isVideo ? `
+            <svg class="sp-badge-video" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                <path d="m10 15 5-3-5-3v6zm11-12H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14z"/>
+            </svg>` : '';
+        const verifiedIcon = (isArtist || item.verified) ? `
+            <svg class="sp-sugg-verified-badge" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+            </svg>` : '';
+
+        let subText = item.artist || '';
+        if (isArtist) {
+            subText = 'Artist';
+        } else if (isAlbum) {
+            subText = 'Album • ' + (item.artist || 'Unknown');
+        } else {
+            subText = 'Song • ' + (item.artist || 'Unknown');
+        }
+
+        return `
+            <li class="sp-sugg-item" data-index="${index}" onclick="selectSearchSuggestion(${index})">
+                <div class="sp-sugg-thumb-wrap ${isArtist ? 'is-artist' : ''}">
+                    <img src="${item.cover || '/logo-mark.png'}" alt="" onerror="this.src='/logo-mark.png'">
+                </div>
+                <div class="sp-sugg-meta">
+                    <div class="sp-sugg-title-row">
+                        <span class="sp-sugg-title-text">${escapeHtml(item.title)}</span>
+                        ${verifiedIcon}
+                    </div>
+                    <div class="sp-sugg-sub-row">
+                        ${explicitBadge}
+                        ${videoBadge}
+                        <span class="sp-sugg-sub-text">${escapeHtml(subText)}</span>
+                    </div>
+                </div>
+                <button type="button" class="sp-sugg-remove-btn" title="Remove from recent searches" onclick="removeRecentSearch('${escapeHtml(item.id)}', event)">✕</button>
+            </li>
+        `;
+    }).join('');
+
+    dropdown.innerHTML = `
+        <div class="sp-sugg-header">
+            <span class="sp-sugg-title">Recent searches</span>
+            <button type="button" class="sp-sugg-clear-all" onclick="clearAllRecentSearches(event)">Clear all</button>
+        </div>
+        <ul class="sp-sugg-list" role="listbox">
+            ${itemsHtml}
+        </ul>
+    `;
+}
+
+async function fetchSearchSuggestions(query) {
+    const dropdown = document.getElementById('search-suggestions-dropdown');
+    if (!dropdown) return;
+
+    if (searchSuggestionsAbortController) {
+        searchSuggestionsAbortController.abort();
+    }
+    searchSuggestionsAbortController = new AbortController();
+
+    dropdown.innerHTML = `
+        <div class="sp-sugg-header">
+            <span class="sp-sugg-title">Suggestions</span>
+            <span class="sp-sugg-hint">Searching...</span>
+        </div>
+        <div class="sp-sugg-empty" style="padding: 24px 16px;">
+            <div class="loader" style="margin: 0 auto 8px;"></div>
+            <div class="sp-sugg-tip">Finding matching songs, artists and albums</div>
+        </div>
+    `;
+
+    try {
+        const res = await fetch(`/api/music/search?q=${encodeURIComponent(query)}&limit=8`, {
+            signal: searchSuggestionsAbortController.signal
+        });
+        if (!res.ok) throw new Error('Search failed');
+        const json = await res.json();
+        const tracks = json.data || [];
+
+        renderSuggestionsDropdown(tracks, query);
+    } catch (err) {
+        if (err.name === 'AbortError') return;
+        dropdown.innerHTML = `
+            <div class="sp-sugg-header">
+                <span class="sp-sugg-title">Suggestions</span>
+            </div>
+            <div class="sp-sugg-empty">
+                <div class="sp-sugg-empty-title">No suggestions available</div>
+                <div class="sp-sugg-tip">Press Enter to search all sources</div>
+            </div>
+        `;
+    }
+}
+
+function renderSuggestionsDropdown(tracks, query) {
+    const dropdown = document.getElementById('search-suggestions-dropdown');
+    if (!dropdown) return;
+
+    if (!tracks || tracks.length === 0) {
+        dropdown.innerHTML = `
+            <div class="sp-sugg-header">
+                <span class="sp-sugg-title">Suggestions</span>
+            </div>
+            <div class="sp-sugg-empty">
+                <div class="sp-sugg-empty-title">No direct suggestions for "${escapeHtml(query)}"</div>
+                <div class="sp-sugg-tip">Press Enter to perform a deep multi-source search</div>
+            </div>
+        `;
+        currentSuggestionsList = [];
+        searchSuggestionsSelectedIndex = -1;
+        return;
+    }
+
+    const suggestions = [];
+    const qLower = query.toLowerCase().trim();
+
+    // 1. Check if the query matches an artist in the results
+    const artistCandidate = tracks.find(t => {
+        const a = (t.artist || '').toLowerCase();
+        return a === qLower || a.includes(qLower) || qLower.includes(a);
+    });
+
+    if (artistCandidate && artistCandidate.artist) {
+        suggestions.push({
+            id: 'artist_' + encodeURIComponent(artistCandidate.artist),
+            title: artistCandidate.artist,
+            artist: 'Artist',
+            cover: artistCandidate.thumbnail || artistCandidate.cover || '/logo-mark.png',
+            type: 'artist',
+            verified: true
+        });
+    }
+
+    // 2. Add top matching song entries
+    tracks.slice(0, 6).forEach((t, i) => {
+        const cleaned = cleanMusicTitle(t.title, t.artist);
+        suggestions.push({
+            id: t.id || t.videoId || ('sugg_' + i),
+            title: cleaned.title,
+            artist: cleaned.artist,
+            cover: t.thumbnail || t.cover || '/logo-mark.png',
+            type: 'song',
+            explicit: cleaned.explicit || !!t.explicit,
+            isVideo: (t.source === 'youtube' && !t.isAudioOnly) || !!t.isVideo,
+            rawTrack: t
+        });
+
+        // 3. If an album is identified and distinct from song title, add Album entry
+        if (t.album && t.album.toLowerCase() !== cleaned.title.toLowerCase() && suggestions.filter(s => s.type === 'album').length === 0) {
+            suggestions.push({
+                id: 'album_' + encodeURIComponent(t.album),
+                title: t.album,
+                artist: cleaned.artist,
+                cover: t.thumbnail || t.cover || '/logo-mark.png',
+                type: 'album',
+                explicit: false
+            });
+        }
+    });
+
+    currentSuggestionsList = suggestions;
+    searchSuggestionsSelectedIndex = -1;
+
+    const itemsHtml = suggestions.map((item, index) => {
+        const isArtist = item.type === 'artist';
+        const isAlbum = item.type === 'album';
+        const explicitBadge = item.explicit ? '<span class="sp-badge-e">E</span>' : '';
+        const videoBadge = item.isVideo ? `
+            <svg class="sp-badge-video" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                <path d="m10 15 5-3-5-3v6zm11-12H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14z"/>
+            </svg>` : '';
+        const verifiedIcon = (isArtist || item.verified) ? `
+            <svg class="sp-sugg-verified-badge" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+            </svg>` : '';
+
+        let subText = item.artist || '';
+        if (isArtist) {
+            subText = 'Artist';
+        } else if (isAlbum) {
+            subText = 'Album • ' + (item.artist || 'Unknown');
+        } else {
+            subText = 'Song • ' + (item.artist || 'Unknown');
+        }
+
+        return `
+            <li class="sp-sugg-item" data-index="${index}" onclick="selectSearchSuggestion(${index})">
+                <div class="sp-sugg-thumb-wrap ${isArtist ? 'is-artist' : ''}">
+                    <img src="${item.cover || '/logo-mark.png'}" alt="" onerror="this.src='/logo-mark.png'">
+                </div>
+                <div class="sp-sugg-meta">
+                    <div class="sp-sugg-title-row">
+                        <span class="sp-sugg-title-text">${escapeHtml(item.title)}</span>
+                        ${verifiedIcon}
+                    </div>
+                    <div class="sp-sugg-sub-row">
+                        ${explicitBadge}
+                        ${videoBadge}
+                        <span class="sp-sugg-sub-text">${escapeHtml(subText)}</span>
+                    </div>
+                </div>
+            </li>
+        `;
+    }).join('');
+
+    dropdown.innerHTML = `
+        <div class="sp-sugg-header">
+            <span class="sp-sugg-title">Suggestions</span>
+            <span class="sp-sugg-hint">Press Enter for all results</span>
+        </div>
+        <ul class="sp-sugg-list" role="listbox">
+            ${itemsHtml}
+        </ul>
+    `;
+}
+
+function selectSearchSuggestion(index) {
+    if (!currentSuggestionsList || !currentSuggestionsList[index]) return;
+    const item = currentSuggestionsList[index];
+
+    saveRecentSearch(item);
+    closeSearchDropdown();
+
+    if (item.type === 'artist' || item.type === 'album') {
+        const searchInput = document.getElementById('search-input');
+        if (searchInput) searchInput.value = item.title;
+        navigate('#search');
+        searchMusic(item.title);
+    } else {
+        const trackToPlay = item.rawTrack ? item.rawTrack : {
+            id: item.id,
+            title: item.title,
+            artist: item.artist,
+            thumbnail: item.cover,
+            explicit: item.explicit,
+            source: item.source || 'youtube'
+        };
+        const stdTrack = mapTrackToStandard(trackToPlay, trackToPlay.source || 'youtube');
+        state.queue = [stdTrack];
+        state.queueIndex = 0;
+        saveQueueState();
+        playTrack(stdTrack);
+    }
+}
+
+function updateSearchKeyboardSelection(newIndex) {
+    const dropdown = document.getElementById('search-suggestions-dropdown');
+    if (!dropdown) return;
+
+    const items = dropdown.querySelectorAll('.sp-sugg-item');
+    if (!items || items.length === 0) return;
+
+    searchSuggestionsSelectedIndex = Math.max(0, Math.min(newIndex, items.length - 1));
+    items.forEach((el, idx) => {
+        if (idx === searchSuggestionsSelectedIndex) {
+            el.classList.add('keyboard-selected');
+            el.scrollIntoView({ block: 'nearest' });
+        } else {
+            el.classList.remove('keyboard-selected');
+        }
+    });
+}
+
 function setupSearch() {
     const searchInput = document.getElementById('search-input');
     const qualityFilter = document.getElementById('quality-filter');
     if (!searchInput) return;
+
+    // Detect Mac OS to display ⌘ L on the shortcut badge
+    const isMac = (navigator.platform && navigator.platform.toUpperCase().indexOf('MAC') >= 0) || 
+                  (navigator.userAgent && navigator.userAgent.toUpperCase().indexOf('MAC') >= 0);
+    const kbdContainer = document.getElementById('sp-search-kbd');
+    if (kbdContainer && isMac) {
+        kbdContainer.innerHTML = '<kbd class="sp-search-kbd">⌘</kbd><kbd class="sp-search-kbd">L</kbd>';
+    }
 
     if (qualityFilter) {
         qualityFilter.addEventListener('change', () => {
@@ -360,24 +799,90 @@ function setupSearch() {
         });
     }
 
+    // Open dropdown on focus or click
+    searchInput.addEventListener('focus', () => {
+        openSearchDropdown();
+    });
+
+    searchInput.addEventListener('click', () => {
+        openSearchDropdown();
+    });
+
     searchInput.addEventListener('input', (e) => {
-        clearTimeout(state.searchTimeout);
+        clearTimeout(searchDebounceTimer);
         const query = e.target.value.trim();
-        if (query.length > 0) {
-            if (state.currentView !== 'search') navigate('#search');
-            state.searchTimeout = setTimeout(() => searchMusic(query), 400);
+        openSearchDropdown();
+        if (query.length === 0) {
+            renderRecentSearchesDropdown();
+        } else {
+            searchDebounceTimer = setTimeout(() => {
+                fetchSearchSuggestions(query);
+            }, 180);
         }
     });
 
     searchInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
+        const dropdown = document.getElementById('search-suggestions-dropdown');
+        const isDropdownOpen = dropdown && !dropdown.classList.contains('hidden');
+
+        if (e.key === 'ArrowDown') {
+            if (isDropdownOpen && currentSuggestionsList.length > 0) {
+                e.preventDefault();
+                updateSearchKeyboardSelection(searchSuggestionsSelectedIndex + 1);
+            }
+        } else if (e.key === 'ArrowUp') {
+            if (isDropdownOpen && currentSuggestionsList.length > 0) {
+                e.preventDefault();
+                updateSearchKeyboardSelection(searchSuggestionsSelectedIndex - 1);
+            }
+        } else if (e.key === 'Enter') {
             e.preventDefault();
-            clearTimeout(state.searchTimeout);
-            const q = e.target.value.trim();
-            if (q) { navigate('#search'); searchMusic(q); }
+            clearTimeout(searchDebounceTimer);
+            if (isDropdownOpen && searchSuggestionsSelectedIndex >= 0 && searchSuggestionsSelectedIndex < currentSuggestionsList.length) {
+                selectSearchSuggestion(searchSuggestionsSelectedIndex);
+            } else {
+                closeSearchDropdown();
+                const q = searchInput.value.trim();
+                if (q) {
+                    navigate('#search');
+                    searchMusic(q);
+                }
+            }
+        } else if (e.key === 'Escape') {
+            closeSearchDropdown();
+            searchInput.blur();
+        }
+    });
+
+    // Close dropdown when clicking outside search-wrapper
+    document.addEventListener('click', (e) => {
+        const wrapper = document.getElementById('search-wrapper');
+        if (wrapper && !wrapper.contains(e.target)) {
+            closeSearchDropdown();
+        }
+    });
+
+    // Global keyboard shortcuts: Ctrl+L or Cmd+L, or '/' when not in input
+    document.addEventListener('keydown', (e) => {
+        const isModifierL = (e.ctrlKey || e.metaKey) && (e.key === 'l' || e.key === 'L');
+        const isSlash = e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) && !document.activeElement?.isContentEditable;
+
+        if (isModifierL || isSlash) {
+            e.preventDefault();
+            searchInput.focus();
+            searchInput.select();
+            openSearchDropdown();
         }
     });
 }
+
+// Global exports for search suggestions inline HTML events
+window.removeRecentSearch = removeRecentSearch;
+window.clearAllRecentSearches = clearAllRecentSearches;
+window.selectSearchSuggestion = selectSearchSuggestion;
+window.openSearchDropdown = openSearchDropdown;
+window.closeSearchDropdown = closeSearchDropdown;
+window.saveRecentSearch = saveRecentSearch;
 
 function filterTracksByQuality(tracks, qualityPreference) {
     if (qualityPreference === 'AUTO' || !qualityPreference) return tracks;
@@ -398,37 +903,94 @@ function filterTracksByQuality(tracks, qualityPreference) {
     });
 }
 
+function cleanMusicTitle(rawTitle, rawArtist = '') {
+    if (!rawTitle) return { title: 'Unknown Title', artist: rawArtist || 'Unknown Artist', explicit: false };
+
+    let title = rawTitle;
+    let artist = rawArtist;
+    let explicit = false;
+
+    if (/\bexplicit\b|\[E\]|\(E\)/i.test(title)) {
+        explicit = true;
+    }
+
+    // Strip bracketed specifications and video qualifiers
+    title = title
+        .replace(/\[[^\]]*\b(?:official\s*(?:video|audio|music\s*video)|lyric\s*video|lyrics|hd|4k|8k|uhd|full\s*video|visualizer|audio|video|explicit)\b[^\]]*\]/gi, '')
+        .replace(/\([^)]*\b(?:official\s*(?:video|audio|music\s*video)|lyric\s*video|lyrics|hd|4k|8k|uhd|full\s*video|visualizer|audio|video|explicit)\b[^)]*\)/gi, '')
+        .replace(/\[\s*(?:from\s+.*?|ost|original\s*soundtrack)\s*\]/gi, '')
+        .replace(/\b(?:official\s*(?:audio|video|music\s*video)|lyric\s*video|visualizer|4k|hd)\b/gi, '')
+        .trim();
+
+    // If title has "Artist - Song", split cleanly
+    if (title.includes(' - ') && (!artist || artist === 'YouTube' || artist === 'Unknown Artist')) {
+        const parts = title.split(' - ');
+        if (parts.length >= 2) {
+            artist = parts[0].trim();
+            title = parts.slice(1).join(' - ').trim();
+        }
+    }
+
+    return { title: title || rawTitle, artist: artist || rawArtist || 'Unknown Artist', explicit };
+}
+
 function rankAutoTracks(tracks, query) {
-    // For AUTO: Put high quality local files matching query ahead of YouTube 
-    const q = (query || '').toLowerCase();
+    const q = (query || '').toLowerCase().trim();
+    const qTokens = q.split(/\s+/).filter(Boolean);
+
+    // Filter out obvious non-music / movie scene noise
+    const nonMusicPatterns = /\b(fight|scene|train fight|action scene|comedy scene|movie scene|full movie|trailer|teaser|review|reaction|interview)\b/i;
+
     return tracks.sort((a, b) => {
         const aTitle = (a.title || '').toLowerCase();
         const bTitle = (b.title || '').toLowerCase();
-        const aMatch = aTitle.includes(q) ? 1 : 0;
-        const bMatch = bTitle.includes(q) ? 1 : 0;
-        
-        // Both match relevance similarly
-        if (aMatch === bMatch) {
-            const qScore = { 'HI_RES_LOSSLESS': 4, 'LOSSLESS': 3, 'HIGH': 2, 'STANDARD': 1, 'SOURCE_DEPENDENT': 0, 'UNKNOWN': 0 };
-            const aQ = qScore[a.quality || 'SOURCE_DEPENDENT'] || 0;
-            const bQ = qScore[b.quality || 'SOURCE_DEPENDENT'] || 0;
-            return bQ - aQ;
-        }
-        return bMatch - aMatch;
+        const aArtist = (a.artist || '').toLowerCase();
+        const bArtist = (b.artist || '').toLowerCase();
+
+        // Check non-music noise
+        const aIsNoise = nonMusicPatterns.test(aTitle) && !aTitle.includes('theme') && !aTitle.includes('song') && !aTitle.includes('track');
+        const bIsNoise = nonMusicPatterns.test(bTitle) && !bTitle.includes('theme') && !bTitle.includes('song') && !bTitle.includes('track');
+        if (aIsNoise !== bIsNoise) return aIsNoise ? 1 : -1;
+
+        // Exact artist match gets top priority
+        const aArtistExact = aArtist === q || aArtist.includes(q);
+        const bArtistExact = bArtist === q || bArtist.includes(q);
+        if (aArtistExact !== bArtistExact) return bArtistExact ? 1 : -1;
+
+        // Token match count
+        const aMatches = qTokens.filter(t => aTitle.includes(t) || aArtist.includes(t)).length;
+        const bMatches = qTokens.filter(t => bTitle.includes(t) || bArtist.includes(t)).length;
+        if (aMatches !== bMatches) return bMatches - aMatches;
+
+        const qScore = { 'HI_RES_LOSSLESS': 4, 'LOSSLESS': 3, 'HIGH': 2, 'STANDARD': 1, 'SOURCE_DEPENDENT': 0, 'UNKNOWN': 0 };
+        const aQ = qScore[a.quality || 'SOURCE_DEPENDENT'] || 0;
+        const bQ = qScore[b.quality || 'SOURCE_DEPENDENT'] || 0;
+        return bQ - aQ;
     });
 }
 
 let currentSearchSourceFilter = 'ALL';
+let currentSpotifySearchTab = 'all';
+
+function setSpotifySearchTab(tab) {
+    currentSpotifySearchTab = tab;
+    document.querySelectorAll('.sp-tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+    if (window.currentSearchTracks && window.currentSearchTracks.length > 0) {
+        const container = document.getElementById('search-results');
+        const searchInput = document.getElementById('search-input');
+        const query = searchInput ? searchInput.value.trim() : '';
+        renderSpotifySearchResults(container, window.currentSearchTracks, tab, query);
+    }
+}
 
 function setSearchSourceFilter(source) {
     currentSearchSourceFilter = source ? source.toUpperCase() : 'ALL';
-    const filterButtons = ['all', 'jiosaavn', 'lossless', 'spotify', 'ytmusic', 'local'];
-    filterButtons.forEach(btn => {
-        const el = document.getElementById(`search-filter-${btn}`);
-        if (el) {
-            el.classList.toggle('active', btn.toUpperCase() === currentSearchSourceFilter);
-        }
-    });
+    const sel = document.getElementById('search-source-select');
+    if (sel && sel.value !== currentSearchSourceFilter) {
+        sel.value = currentSearchSourceFilter;
+    }
 
     const searchInput = document.getElementById('search-input');
     const query = searchInput ? searchInput.value.trim() : '';
@@ -444,7 +1006,7 @@ async function searchMusic(query) {
     
     if (!container) return;
 
-    container.innerHTML = '<div class="loader">Searching...</div>';
+    container.innerHTML = '<div class="loader">Searching music...</div>';
     try {
         let musicTracks = [];
         let localTracks = [];
@@ -471,7 +1033,6 @@ async function searchMusic(query) {
                 musicTracks = (lossRes.data || []).map(t => ({ ...t, source: t.source || 'local' }));
             } catch (e) { console.error("Lossless Search Error", e); }
         } else if (sourceFilter === 'local') {
-            // Search local IndexedDB tracks
             if (window.localLibrary) {
                 try {
                     const idbTracks = await window.localLibrary.search(query);
@@ -525,7 +1086,21 @@ async function searchMusic(query) {
         
         if (filteredTracks.length > 0) {
             window.currentSearchTracks = filteredTracks;
-            container.innerHTML = filteredTracks.map((t, idx) => renderTrackCard(t, t.source, idx, 'search')).join('');
+            // Save top search result into recent searches history
+            const topTrack = filteredTracks[0];
+            if (topTrack && typeof saveRecentSearch === 'function') {
+                saveRecentSearch({
+                    id: topTrack.id || ('search_' + encodeURIComponent(query)),
+                    title: topTrack.title || query,
+                    artist: topTrack.artist || 'Unknown',
+                    album: topTrack.album || '',
+                    cover: topTrack.thumbnail || topTrack.cover || '/logo-mark.png',
+                    type: 'song',
+                    explicit: !!topTrack.explicit,
+                    isVideo: !!topTrack.isVideo
+                });
+            }
+            renderSpotifySearchResults(container, filteredTracks, currentSpotifySearchTab, query);
         } else {
             if (selectedQuality !== 'AUTO') {
                 container.innerHTML = `
@@ -534,11 +1109,360 @@ async function searchMusic(query) {
                         <button class="button button-primary" onclick="document.getElementById('quality-filter').value='AUTO'; searchMusic('${query.replace(/'/g, "\\'")}');">Play best available</button>
                     </div>`;
             } else {
-                container.innerHTML = '<div class="empty-state">No results found for this source. Try a different query or source filter.</div>';
+                container.innerHTML = '<div class="empty-state">No results found for this query. Try a different query or source filter.</div>';
             }
         }
     } catch (err) {
         container.innerHTML = '<div class="empty-state">Search failed. Please try again.</div>';
+    }
+}
+
+function renderSpotifySearchResults(container, tracks, tab = 'all', query = '') {
+    if (!container) return;
+    if (!tracks || tracks.length === 0) {
+        container.innerHTML = '<div class="empty-state">No results found for this query.</div>';
+        return;
+    }
+
+    window.currentSearchTracks = tracks;
+
+    // Normalize track metadata
+    const standardTracks = tracks.map((t, idx) => {
+        const std = mapTrackToStandard(t, t.source || 'youtube');
+        const cleaned = cleanMusicTitle(std.title, std.artist);
+        return {
+            ...std,
+            originalIndex: idx,
+            displayTitle: cleaned.title,
+            displayArtist: cleaned.artist,
+            explicit: cleaned.explicit || std.explicit
+        };
+    });
+
+    if (tab === 'songs') {
+        container.innerHTML = `
+            <div class="sp-songs-col" style="width: 100%;">
+                <h3 class="sp-section-heading">Songs</h3>
+                <div class="sp-songs-list">
+                    ${standardTracks.map((t, idx) => renderSpotifyTrackRow(t, idx)).join('')}
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    if (tab === 'artists') {
+        const artists = extractArtistsFromTracks(standardTracks, query);
+        container.innerHTML = `
+            <div>
+                <h3 class="sp-section-heading">Artists</h3>
+                <div class="sp-artists-grid">
+                    ${artists.map(a => renderSpotifyArtistCard(a)).join('')}
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    if (tab === 'albums') {
+        const albums = extractAlbumsFromTracks(standardTracks);
+        container.innerHTML = `
+            <div>
+                <h3 class="sp-section-heading">Albums</h3>
+                <div class="sp-albums-grid">
+                    ${albums.map(al => renderSpotifyAlbumCard(al)).join('')}
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    // Default 'all' tab (Spotify Split Layout: Top Result Card + Songs List + Artists + Albums)
+    const topTrack = standardTracks[0];
+    const topSongs = standardTracks.slice(0, 4);
+    const artists = extractArtistsFromTracks(standardTracks, query).slice(0, 4);
+    const albums = extractAlbumsFromTracks(standardTracks).slice(0, 4);
+    const moreSongs = standardTracks.slice(4, 12);
+
+    const topEncoded = encodeURIComponent(JSON.stringify(topTrack));
+
+    container.innerHTML = `
+        <div class="sp-top-split-section">
+            <!-- Top Result Card -->
+            <div class="sp-top-result-col">
+                <h3 class="sp-section-heading">Top result</h3>
+                <div class="sp-top-result-card" onclick="playTrackFromData('${topEncoded}', 'search', 0)">
+                    <div class="sp-top-card-cover-wrap">
+                        <img src="${topTrack.cover || '/logo-mark.png'}" alt="${escapeHtml(topTrack.displayTitle)}" onerror="this.src='/logo-mark.png'">
+                    </div>
+                    <div class="sp-top-card-info">
+                        <h2 class="sp-top-card-title">${escapeHtml(topTrack.displayTitle)}</h2>
+                        <div class="sp-top-card-sub">
+                            <span class="sp-badge-tag">Song</span>
+                            <span>•</span>
+                            <span class="sp-top-card-artist">${escapeHtml(topTrack.displayArtist)}</span>
+                        </div>
+                    </div>
+                    <div class="sp-top-play-btn" title="Play">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Songs List (Top 4 Rows) -->
+            <div class="sp-songs-col">
+                <h3 class="sp-section-heading">Songs</h3>
+                <div class="sp-songs-list">
+                    ${topSongs.map((t, idx) => renderSpotifyTrackRow(t, idx)).join('')}
+                </div>
+            </div>
+        </div>
+
+        ${artists.length > 0 ? `
+            <div>
+                <h3 class="sp-section-heading">Artists</h3>
+                <div class="sp-artists-grid">
+                    ${artists.map(a => renderSpotifyArtistCard(a)).join('')}
+                </div>
+            </div>
+        ` : ''}
+
+        ${albums.length > 0 ? `
+            <div>
+                <h3 class="sp-section-heading">Albums</h3>
+                <div class="sp-albums-grid">
+                    ${albums.map(al => renderSpotifyAlbumCard(al)).join('')}
+                </div>
+            </div>
+        ` : ''}
+
+        ${moreSongs.length > 0 ? `
+            <div>
+                <h3 class="sp-section-heading">More Songs</h3>
+                <div class="sp-songs-list">
+                    ${moreSongs.map((t, idx) => renderSpotifyTrackRow(t, idx + 4)).join('')}
+                </div>
+            </div>
+        ` : ''}
+    `;
+}
+
+function renderSpotifyTrackRow(track, index) {
+    const encoded = encodeURIComponent(JSON.stringify(track));
+    const durFormatted = track.duration ? formatDuration(track.duration) : '';
+    const isCurrentPlaying = state.currentTrack && state.currentTrack.id === track.id;
+
+    return `
+        <div class="sp-track-row ${isCurrentPlaying ? 'playing' : ''}" onclick="playTrackFromData('${encoded}', 'search', ${index})">
+            <div class="sp-row-thumb-wrap">
+                <img src="${track.cover || '/logo-mark.png'}" alt="${escapeHtml(track.displayTitle)}" loading="lazy" onerror="this.src='/logo-mark.png'">
+                <div class="sp-row-play-icon">▶</div>
+            </div>
+            <div class="sp-row-meta">
+                <div class="sp-row-title">${escapeHtml(track.displayTitle)} ${track.explicit ? '<span class="sp-explicit-tag">E</span>' : ''}</div>
+                <div class="sp-row-artist">${escapeHtml(track.displayArtist)}</div>
+            </div>
+            <div class="sp-row-type">Song</div>
+            <div class="sp-row-duration">${durFormatted}</div>
+            <button class="sp-row-btn" onclick="event.stopPropagation(); toggleLikeTrack('${track.id}')" title="Save to Your Library">♡</button>
+            <button class="sp-row-btn" onclick="event.stopPropagation(); addToQueueFromData('${encoded}')" title="Add to Queue">+</button>
+        </div>
+    `;
+}
+
+function extractArtistsFromTracks(tracks, query = '') {
+    const map = new Map();
+    for (const t of tracks) {
+        const artist = (t.displayArtist || t.artist || '').trim();
+        if (!artist || artist === 'Unknown Artist') continue;
+        const mainArtist = artist.split(/[,&/]|feat\.|\bwith\b/i)[0].trim();
+        if (!map.has(mainArtist.toLowerCase())) {
+            map.set(mainArtist.toLowerCase(), {
+                name: mainArtist,
+                cover: t.cover || '/logo-mark.png'
+            });
+        }
+    }
+    return Array.from(map.values());
+}
+
+function extractAlbumsFromTracks(tracks) {
+    const map = new Map();
+    for (const t of tracks) {
+        let album = (t.album || '').trim();
+        if (!album && t.displayTitle.includes('(')) {
+            const match = t.displayTitle.match(/\((.*?)\)/);
+            if (match && !match[1].toLowerCase().includes('feat') && !match[1].toLowerCase().includes('video')) {
+                album = match[1];
+            }
+        }
+        if (!album) continue;
+        if (!map.has(album.toLowerCase())) {
+            map.set(album.toLowerCase(), {
+                name: album,
+                artist: t.displayArtist || t.artist,
+                cover: t.cover || '/logo-mark.png',
+                year: t.releaseYear || new Date().getFullYear()
+            });
+        }
+    }
+    return Array.from(map.values());
+}
+
+function renderSpotifyArtistCard(artist) {
+    return `
+        <div class="sp-artist-card" onclick="filterSearchByArtist('${escapeHtml(artist.name)}')">
+            <div class="sp-artist-avatar-wrap">
+                <img src="${artist.cover}" alt="${escapeHtml(artist.name)}" onerror="this.src='/logo-mark.png'">
+            </div>
+            <div class="sp-artist-name">${escapeHtml(artist.name)}</div>
+            <div class="sp-artist-role">Artist</div>
+            <button class="sp-follow-btn" onclick="event.stopPropagation(); toggleFollowArtist('${escapeHtml(artist.name)}', this)">Follow</button>
+        </div>
+    `;
+}
+
+function renderSpotifyAlbumCard(album) {
+    return `
+        <div class="sp-album-card" onclick="searchMusic('${escapeHtml(album.name)}')">
+            <div class="sp-album-cover-wrap">
+                <img src="${album.cover}" alt="${escapeHtml(album.name)}" onerror="this.src='/logo-mark.png'">
+                <div class="sp-album-play-btn">▶</div>
+            </div>
+            <div class="sp-album-title">${escapeHtml(album.name)}</div>
+            <div class="sp-album-meta">${album.year} • Album</div>
+        </div>
+    `;
+}
+
+function filterSearchByArtist(artistName) {
+    const input = document.getElementById('search-input');
+    if (input) input.value = artistName;
+    searchMusic(artistName);
+}
+
+function toggleFollowArtist(artistName, btn) {
+    if (!btn) return;
+    const isFollowing = btn.classList.contains('following');
+    btn.classList.toggle('following', !isFollowing);
+    btn.textContent = isFollowing ? 'Follow' : 'Following';
+    if (typeof showToast === 'function') {
+        showToast(!isFollowing ? `Following ${artistName}` : `Unfollowed ${artistName}`, 'info');
+    }
+}
+
+// ==================================================================
+// SPOTIFY RIGHT-HAND "NOW PLAYING" SIDECAR CONTROLLERS
+// ==================================================================
+
+function toggleNowPlayingSidecar(forcedState) {
+    const sidecar = document.getElementById('now-playing-panel');
+    const toggleBtn = document.getElementById('toggle-now-playing-btn');
+    if (!sidecar) return;
+
+    const isCurrentlyCollapsed = sidecar.classList.contains('collapsed');
+    const willCollapse = typeof forcedState === 'boolean' ? !forcedState : !isCurrentlyCollapsed;
+
+    sidecar.classList.toggle('collapsed', willCollapse);
+    if (toggleBtn) {
+        toggleBtn.classList.toggle('active', !willCollapse);
+    }
+    try {
+        localStorage.setItem('basa_now_playing_sidecar', willCollapse ? '0' : '1');
+    } catch (e) {}
+}
+
+function updateNowPlayingSidecar(trackData) {
+    if (!trackData) return;
+    const npCover = document.getElementById('np-cover-img');
+    const npTitle = document.getElementById('np-track-title');
+    const npArtist = document.getElementById('np-track-artist');
+    const npContext = document.getElementById('np-context-title');
+    const npLikeBtn = document.getElementById('np-like-btn');
+
+    if (npCover && trackData.cover) npCover.src = trackData.cover;
+    if (npTitle) npTitle.textContent = trackData.title || 'Not Playing';
+    if (npArtist) npArtist.textContent = trackData.artist || '';
+    if (npContext) npContext.textContent = trackData.title ? `Based on ${trackData.title}` : 'Now Playing';
+
+    if (npLikeBtn && trackData.id) {
+        checkIfLiked(trackData.id, trackData.source).then(liked => {
+            if (npLikeBtn) {
+                npLikeBtn.textContent = liked ? '♥' : '♡';
+                npLikeBtn.classList.toggle('active', Boolean(liked));
+            }
+        }).catch(() => {});
+    }
+
+    // Populate Related Music Videos / Up Next
+    const npList = document.getElementById('np-related-list');
+    if (npList) {
+        const upcoming = window.playerQueueStore ? window.playerQueueStore.getUpcomingItems().slice(0, 4) : [];
+        if (upcoming.length > 0) {
+            npList.innerHTML = upcoming.map((item, idx) => {
+                const s = item.song;
+                const encoded = encodeURIComponent(JSON.stringify(mapTrackToStandard(s, s.source || 'youtube')));
+                return `
+                    <div class="np-related-item" onclick="playTrackFromData('${encoded}', 'related', ${idx})">
+                        <div class="np-related-thumb-wrap">
+                            <img src="${s.cover || '/logo-mark.png'}" alt="${escapeHtml(s.title)}" onerror="this.src='/logo-mark.png'">
+                        </div>
+                        <div class="np-related-info">
+                            <span class="np-related-track-title">${escapeHtml(s.title)}</span>
+                            <span class="np-related-track-artist">${escapeHtml(s.artist)}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        } else if (state.recommendedQueue && state.recommendedQueue.length > 0) {
+            npList.innerHTML = state.recommendedQueue.slice(0, 3).map((s, idx) => {
+                const encoded = encodeURIComponent(JSON.stringify(mapTrackToStandard(s, s.source || 'youtube')));
+                return `
+                    <div class="np-related-item" onclick="playTrackFromData('${encoded}', 'related', ${idx})">
+                        <div class="np-related-thumb-wrap">
+                            <img src="${s.cover || '/logo-mark.png'}" alt="${escapeHtml(s.title)}" onerror="this.src='/logo-mark.png'">
+                        </div>
+                        <div class="np-related-info">
+                            <span class="np-related-track-title">${escapeHtml(s.title)}</span>
+                            <span class="np-related-track-artist">${escapeHtml(s.artist)}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+    }
+}
+
+function openFullscreenLyrics() {
+    userWantsLyrics = true;
+    if (typeof openFullScreenPlayer === 'function') {
+        openFullScreenPlayer();
+    }
+    if (typeof setFsPlayerMode === 'function') {
+        setFsPlayerMode('lyrics');
+    }
+}
+
+function toggleLikeCurrentTrack() {
+    if (state.currentTrack && state.currentTrack.id) {
+        toggleLikeTrack(state.currentTrack.id);
+        const npLike = document.getElementById('np-like-btn');
+        if (npLike) {
+            const isLiked = npLike.textContent === '♥';
+            npLike.textContent = isLiked ? '♡' : '♥';
+            npLike.classList.toggle('active', !isLiked);
+        }
+    }
+}
+
+function copyCurrentTrackLink() {
+    if (state.currentTrack) {
+        const text = `${state.currentTrack.title} by ${state.currentTrack.artist} on BASA`;
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(() => {
+                if (typeof showToast === 'function') showToast('Copied song info to clipboard!', 'info');
+            });
+        }
     }
 }
 
@@ -1366,6 +2290,22 @@ function playTrack(trackData, forceLocal = false, isBackwardNav = false, fromQue
         window.playerQueueStore.play(trackData);
     }
 
+    // Record into recent searches for instant search suggestions history
+    if (trackData && (trackData.title || trackData.name)) {
+        try {
+            saveRecentSearch({
+                id: String(trackData.id || trackData.videoId || Date.now()),
+                title: trackData.title || trackData.name,
+                artist: trackData.artist || 'Unknown Artist',
+                cover: trackData.thumbnail || trackData.cover || '/logo-mark.png',
+                type: 'song',
+                explicit: !!trackData.explicit,
+                isVideo: (trackData.source === 'youtube' && !trackData.isAudioOnly) || !!trackData.isVideo,
+                rawTrack: trackData
+            });
+        } catch (e) {}
+    }
+
     // Record session feedback on outgoing track (skip vs complete)
     if (state.currentTrack && state.currentTrackStartTime > 0 && !isBackwardNav) {
         const elapsedSec = (Date.now() - state.currentTrackStartTime) / 1000;
@@ -1430,13 +2370,15 @@ function playTrack(trackData, forceLocal = false, isBackwardNav = false, fromQue
 
     saveQueueState();
 
-    // Trigger asynchronous lyrics fetch for new track
-    loadLyricsForTrack(trackData);
+    const loadId = window.playbackManager ? ++window.playbackManager.currentLoadId : Date.now();
+
+    // Trigger asynchronous lyrics fetch with monotonic loadId (Step 2)
+    loadLyricsForTrack(trackData, loadId);
 
     // Asynchronously pre-generate Up Next queue for instantaneous Next response (Section 32, 41)
     fetchUpNextRecommendations(trackData);
 
-    window.playbackManager.loadTrack(trackData);
+    window.playbackManager.loadTrack(trackData, { loadId, userInitiated: !fromQueueStore });
     state.isPlaying = true;
     updatePlayerUI(trackData);
     renderQueueDrawer();
@@ -1494,15 +2436,10 @@ function playFromList(tracks, index = 0, contextName = 'Current Context') {
 }
 
 let lastNavClickTimestamp = 0;
+let navCoalesceTimer = null;
+const COALESCE_DELAY_MS = 120;
 
 function playNext(isUserInitiated = false, isAutoSkipOnError = false) {
-    const now = Date.now();
-    // Guard against rapid duplicate clicks within 250ms (Step 4)
-    if (isUserInitiated && (now - lastNavClickTimestamp < 250)) {
-        return;
-    }
-    lastNavClickTimestamp = now;
-
     if (isUserInitiated && window.playbackManager) {
         window.playbackManager.consecutiveAutoSkips = 0;
     }
@@ -1516,11 +2453,25 @@ function playNext(isUserInitiated = false, isAutoSkipOnError = false) {
         return;
     }
 
-    // Single Source of Truth: Unified PlayerQueueStore (Step 1, Step 4)
+    // Single Source of Truth: Unified PlayerQueueStore (Step 1, Step 3, Step 8)
     if (window.playerQueueStore) {
         const nextItem = window.playerQueueStore.next(isUserInitiated);
         if (nextItem && nextItem.song) {
-            playTrack(nextItem.song, false, false, true);
+            // Step 8: Optimistic UI updates target song immediately at 0ms
+            state.currentTrack = nextItem.song;
+            updatePlayerUI(nextItem.song);
+            renderQueueDrawer();
+
+            // Step 3: Coalesce rapid clicks; natural track-end plays immediately
+            if (!isUserInitiated) {
+                if (navCoalesceTimer) clearTimeout(navCoalesceTimer);
+                playTrack(nextItem.song, false, false, true);
+            } else {
+                if (navCoalesceTimer) clearTimeout(navCoalesceTimer);
+                navCoalesceTimer = setTimeout(() => {
+                    playTrack(nextItem.song, false, false, true);
+                }, COALESCE_DELAY_MS);
+            }
             return;
         } else if (window.playerQueueStore.getUpcomingItems().length === 0 && !isAutoSkipOnError) {
             state.isPlaying = false;
@@ -1587,12 +2538,6 @@ function playNext(isUserInitiated = false, isAutoSkipOnError = false) {
 }
 
 function playPrev() {
-    const now = Date.now();
-    if (now - lastNavClickTimestamp < 250) {
-        return;
-    }
-    lastNavClickTimestamp = now;
-
     if (window.playbackManager) {
         window.playbackManager.consecutiveAutoSkips = 0;
     }
@@ -1603,13 +2548,22 @@ function playPrev() {
         return;
     }
 
-    // Unified PlayerQueueStore (Step 1, Step 4)
+    // Unified PlayerQueueStore (Step 1, Step 3, Step 8)
     if (window.playerQueueStore) {
         const prevItem = window.playerQueueStore.previous(() => 
             window.playbackManager ? window.playbackManager.getCurrentTime() : 0
         );
         if (prevItem && prevItem.song) {
-            playTrack(prevItem.song, false, true, true);
+            // Step 8: Optimistic UI updates target song immediately at 0ms
+            state.currentTrack = prevItem.song;
+            updatePlayerUI(prevItem.song);
+            renderQueueDrawer();
+
+            // Step 3: Coalesce rapid clicks
+            if (navCoalesceTimer) clearTimeout(navCoalesceTimer);
+            navCoalesceTimer = setTimeout(() => {
+                playTrack(prevItem.song, false, true, true);
+            }, COALESCE_DELAY_MS);
             return;
         } else {
             return;
@@ -2087,7 +3041,8 @@ function renderQueueDrawer() {
         if (state.autoplayEnabled !== false && autoItems.length > 0) {
             const recItemsHtml = autoItems.map((track, rIdx) => {
                 const cover = track.coverUrl || track.cover || '';
-                const reason = track.reason || (track.mood ? `Vibe · ${track.mood}` : 'Musical continuity');
+                const reason = track.recommendationReason || track.reason || (track.mood ? `Vibe · ${track.mood}` : 'Musical continuity');
+                const aiBadge = track.aiCurated ? '<span class="queue-ai-badge" style="display:inline-flex; align-items:center; background:linear-gradient(135deg, rgba(147,51,234,0.3), rgba(59,130,246,0.3)); border:1px solid rgba(147,51,234,0.4); border-radius:4px; font-size:9px; font-weight:700; color:#c084fc; padding:1px 5px; margin-left:6px;">✨ AI DJ</span>' : '';
                 const entryId = track.queueItemId || track.queueEntryId || `a_${rIdx}`;
                 const encoded = encodeURIComponent(JSON.stringify(track));
                 return `
@@ -2097,7 +3052,10 @@ function renderQueueDrawer() {
                             <div class="queue-item-play-overlay">▶</div>
                         </div>
                         <div class="queue-item-info">
-                            <span class="queue-item-title">${escapeHtml(track.title || 'Unknown')}</span>
+                            <div style="display:flex; align-items:center;">
+                                <span class="queue-item-title">${escapeHtml(track.title || 'Unknown')}</span>
+                                ${aiBadge}
+                            </div>
                             <span class="queue-item-artist">${escapeHtml(track.artist || 'Unknown Artist')}</span>
                             <span class="rec-reason-pill">${escapeHtml(reason)}</span>
                         </div>
@@ -2314,6 +3272,9 @@ function updatePlayerUI(trackData) {
             fsTotalTimeEl.dataset.lastDur = String(Math.round(metaDuration));
         }
     }
+
+    // Update Spotify-Style Now Playing Sidecar
+    updateNowPlayingSidecar(trackData);
 }
 
 function updatePlayPauseButton() {
@@ -2436,7 +3397,10 @@ function setupPlayer() {
         renderQueueDrawer();
     };
 
-    window.playbackManager.onDurationChange = (dur) => {
+    window.playbackManager.onDurationChange = (dur, loadId) => {
+        if (loadId && window.playbackManager && loadId !== window.playbackManager.currentLoadId) {
+            return;
+        }
         if (dur > 0) {
             const durText = formatDuration(dur);
             if (totalTimeEl) {
@@ -2451,7 +3415,10 @@ function setupPlayer() {
         }
     };
 
-    window.playbackManager.onStateChange = (stateName) => {
+    window.playbackManager.onStateChange = (stateName, loadId) => {
+        if (loadId && window.playbackManager && loadId !== window.playbackManager.currentLoadId) {
+            return;
+        }
         if (stateName === 'playing' || stateName === 'loadedmetadata') {
             if (stateName === 'playing') {
                 state.isPlaying = true;
@@ -2476,7 +3443,7 @@ function setupPlayer() {
             updatePlayPauseButton();
             renderQueueDrawer();
         } else if (stateName === 'ended') {
-            playNext();
+            playNext(false);
         }
     };
     
@@ -2489,7 +3456,10 @@ function setupPlayer() {
     let isUserScrubbing = false;
 
     // Direct hardware-timed update from HTML5 Audio timeupdate
-    window.playbackManager.onTimeUpdate = (currentTime, duration) => {
+    window.playbackManager.onTimeUpdate = (currentTime, duration, loadId) => {
+        if (loadId && window.playbackManager && loadId !== window.playbackManager.currentLoadId) {
+            return;
+        }
         if (isUserScrubbing) return;
         const curText = formatDuration(currentTime);
         if (currentTimeEl) currentTimeEl.textContent = curText;
@@ -3331,6 +4301,11 @@ document.addEventListener('DOMContentLoaded', () => {
         loadHome();
     }
 
+    // Initialize Spotify-Style Now Playing Sidecar
+    const savedSidecarState = localStorage.getItem('basa_now_playing_sidecar');
+    const shouldOpenSidecar = savedSidecarState !== null ? savedSidecarState === '1' : window.innerWidth > 1150;
+    toggleNowPlayingSidecar(shouldOpenSidecar);
+
     // Step 5: Restore queue and track details after refresh without auto-playing
     if (window.playerQueueStore) {
         window.playerQueueStore.subscribe(() => {
@@ -3345,12 +4320,6 @@ document.addEventListener('DOMContentLoaded', () => {
             // Note: Does NOT auto-play so user retains control
         }
     }
-
-    window.addEventListener('basa:play_track', (e) => {
-        if (e && e.detail) {
-            playTrack(e.detail, false, false, true);
-        }
-    });
 });
 
 // 17. FULL SCREEN PLAYER & LIQUID GLASS PHYSICS
@@ -3923,6 +4892,19 @@ function setupSync() {
         });
     });
 }
+
+function startOrOpenJamSession() {
+    closeQueueDrawer();
+    navigate('#sync');
+    setTimeout(() => {
+        const btnCreate = document.getElementById('btn-create-room');
+        if (btnCreate) {
+            btnCreate.click();
+            showToast('🎵 Jam session started! Share your invite code with friends.', 'success');
+        }
+    }, 150);
+}
+window.startOrOpenJamSession = startOrOpenJamSession;
 
 // Global window bindings for interop with PlaybackManager & YouTube Player
 window.playTrack = playTrack;
@@ -4819,11 +5801,33 @@ function syncLyricsTick(currentTime, forceScroll = false) {
         if (activeEl) {
             scrollActiveLyricIntoView(activeEl, forceScroll);
         }
+
+        // Live lyrics snippet in Spotify Now Playing Sidecar
+        const npSnippet = document.getElementById('np-lyrics-snippet');
+        if (npSnippet && foundIndex >= 0 && lines[foundIndex]) {
+            const currentLine = lines[foundIndex].text || '';
+            const nextLine = (lines[foundIndex + 1] && lines[foundIndex + 1].text) ? lines[foundIndex + 1].text : '';
+            npSnippet.innerHTML = `
+                <p class="np-lyric-line active">${escapeHtml(currentLine)}</p>
+                ${nextLine ? `<p class="np-lyric-line upcoming">${escapeHtml(nextLine)}</p>` : ''}
+            `;
+        }
     }
 }
 
-async function loadLyricsForTrack(track) {
+let activeLyricsAbortController = null;
+let activeLyricsLoadId = 0;
+
+async function loadLyricsForTrack(track, loadId) {
     if (!track || !track.title) return;
+
+    if (activeLyricsAbortController) {
+        try { activeLyricsAbortController.abort(); } catch (e) {}
+    }
+    activeLyricsAbortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    activeLyricsLoadId = typeof loadId === 'number' ? loadId : (window.playbackManager ? window.playbackManager.currentLoadId : Date.now());
+    const thisLoadId = activeLyricsLoadId;
+
     currentLyricsTrackId = track.id;
     activeLyricIndex = -1;
     updateFsLyricsButtonState(false, true);
@@ -4833,7 +5837,7 @@ async function loadLyricsForTrack(track) {
     if (container) {
         container.classList.add('lyrics-fading-out');
         setTimeout(() => {
-            if (currentLyricsTrackId === track.id) {
+            if (activeLyricsLoadId === thisLoadId && currentLyricsTrackId === track.id) {
                 container.innerHTML = '<p class="fs-lyrics-placeholder">Looking for lyrics...</p>';
                 container.classList.remove('lyrics-fading-out');
             }
@@ -4849,12 +5853,14 @@ async function loadLyricsForTrack(track) {
             trackId: track.id || ''
         });
 
-        const res = await fetch(`/api/music/lyrics?${params}`);
+        const res = await fetch(`/api/music/lyrics?${params}`, {
+            signal: activeLyricsAbortController ? activeLyricsAbortController.signal : undefined
+        });
         if (!res.ok) throw new Error('Lyrics fetch failed');
         const data = await res.json();
 
-        // Check if track hasn't changed during fetch
-        if (state.currentTrack && state.currentTrack.id !== track.id) return;
+        // Check if track or loadId hasn't changed during fetch (Step 2: load tokens kill stale results)
+        if (thisLoadId !== activeLyricsLoadId || (state.currentTrack && state.currentTrack.id !== track.id)) return;
 
         if (data.success && data.lyrics && (data.lyrics.syncedLyrics || data.lyrics.plainLyrics)) {
             currentLyricsData = data.lyrics;
@@ -4923,10 +5929,34 @@ async function loadLyricsForTrack(track) {
                     container.classList.add('lyrics-fading-in');
                 }
             }
+
+            // Update Spotify Now Playing Sidecar lyrics preview
+            const npSnippet = document.getElementById('np-lyrics-snippet');
+            if (npSnippet) {
+                if (data.lyrics.synced && data.lyrics.lines && data.lyrics.lines.length > 0) {
+                    const l1 = data.lyrics.lines[0]?.text || '';
+                    const l2 = data.lyrics.lines[1]?.text || '';
+                    npSnippet.innerHTML = `
+                        <p class="np-lyric-line active">${escapeHtml(l1)}</p>
+                        ${l2 ? `<p class="np-lyric-line upcoming">${escapeHtml(l2)}</p>` : ''}
+                    `;
+                } else if (data.lyrics.plainLyrics) {
+                    const plain = (data.lyrics.plainLyrics || '').split(/\r?\n/).filter(Boolean);
+                    npSnippet.innerHTML = `
+                        <p class="np-lyric-line active">${escapeHtml(plain[0] || '')}</p>
+                        ${plain[1] ? `<p class="np-lyric-line upcoming">${escapeHtml(plain[1])}</p>` : ''}
+                    `;
+                }
+            }
         } else {
             currentLyricsData = null;
             updateFsLyricsButtonState(false, false);
             setFsPlayerMode('artwork'); // AUTOMATICALLY switch to Centered Apple Music Player!
+
+            const npSnippet = document.getElementById('np-lyrics-snippet');
+            if (npSnippet) {
+                npSnippet.innerHTML = '<p class="np-lyric-line active" style="opacity:0.7; font-size:14px;">Lyrics not available for this track.</p>';
+            }
 
             if (syncBadge) {
                 syncBadge.textContent = 'LYRICS';
@@ -4939,14 +5969,15 @@ async function loadLyricsForTrack(track) {
             }
         }
     } catch (err) {
+        if (thisLoadId !== activeLyricsLoadId || err.name === 'AbortError') return;
         console.warn('[Lyrics] Error:', err.message);
         currentLyricsData = null;
         updateFsLyricsButtonState(false, false);
-        setFsPlayerMode('artwork'); // AUTOMATICALLY switch to Centered Apple Music Player!
+        setFsPlayerMode('artwork');
 
-        if (container) {
-            container.innerHTML = '<p class="fs-lyrics-placeholder">Lyrics not available for this track.</p>';
-            container.classList.remove('lyrics-fading-out');
+        const npSnippet = document.getElementById('np-lyrics-snippet');
+        if (npSnippet) {
+            npSnippet.innerHTML = '<p class="np-lyric-line active" style="opacity:0.7; font-size:14px;">Lyrics not available for this track.</p>';
         }
     }
 }

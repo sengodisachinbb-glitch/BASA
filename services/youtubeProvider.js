@@ -11,6 +11,7 @@
  */
 
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || '';
+const innertubeProvider = require('./innertubeProvider');
 
 function parseISO8601Duration(duration) {
     if (!duration) return 0;
@@ -155,8 +156,19 @@ class YouTubeProvider {
 
     async searchFallback(query, limit = 25) {
         try {
+            const innerTracks = await innertubeProvider.search(query, { limit });
+            if (innerTracks && innerTracks.length > 0) {
+                return innerTracks;
+            }
+        } catch (e) {
+            console.warn('[YouTubeProvider] InnerTube search notice:', e.message);
+        }
+
+        try {
             const yts = require('yt-search');
-            const searchResults = await yts(query);
+            const searchPromise = yts(query);
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('yt-search timeout')), 2500));
+            const searchResults = await Promise.race([searchPromise, timeoutPromise]);
             const videos = (searchResults.videos || []).filter(v => {
                 const title = (v.title || '').toLowerCase();
                 if (title.includes('#shorts') || title.includes('shorts/')) return false;
@@ -212,52 +224,47 @@ class YouTubeProvider {
     async search(query, options = {}) {
         const limit = Math.min(Math.max(parseInt(options.limit, 10) || 25, 1), 50);
 
-        if (!this.apiKey) {
-            console.warn('[YouTubeProvider] YOUTUBE_API_KEY is not configured, falling back to direct search');
-            return this.searchFallback(query, limit);
-        }
-
-        const encodedQuery = encodeURIComponent(query);
-        const fetchLimit = Math.min(limit * 2, 50);
-        const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=${fetchLimit}&q=${encodedQuery}&type=video&videoCategoryId=10&key=${this.apiKey}`;
-
+        // 1. Direct YouTube Music InnerTube search (Native BASA 2.0 protocol: ~200ms, 0 quota)
         try {
-            const response = await fetch(url);
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.warn(`[YouTubeProvider] API error: ${response.status}. Falling back to direct search...`);
-                return this.searchFallback(query, limit);
+            const innerTracks = await innertubeProvider.search(query, { limit });
+            if (innerTracks && innerTracks.length > 0) {
+                return innerTracks;
             }
-
-            const searchData = await response.json();
-            const items = searchData.items || [];
-            const videoIds = items.map(i => i.id?.videoId).filter(Boolean);
-
-            const detailedVideos = await fetchVideoDetails(videoIds);
-            if (detailedVideos.length === 0) {
-                return this.searchFallback(query, limit);
-            }
-
-            const validVideos = [];
-
-            for (const video of detailedVideos) {
-                const validation = validateYouTubeTrack(video, video.contentDetails);
-                if (validation.valid) {
-                    validVideos.push(video);
-                } else {
-                    console.log(`[YouTube Filter] Rejected: videoId=${video.id} reason=${validation.reason}`);
-                }
-            }
-
-            const rankedVideos = rankValidResults(validVideos);
-            if (rankedVideos.length === 0) {
-                return this.searchFallback(query, limit);
-            }
-            return rankedVideos.slice(0, limit).map(mapDetailedYoutubeToTrack);
-        } catch (err) {
-            console.warn('[YouTubeProvider] Search error:', err.message, '- falling back to direct search...');
-            return this.searchFallback(query, limit);
+        } catch (e) {
+            console.warn('[YouTubeProvider] InnerTube search notice:', e.message);
         }
+
+        // 2. Fallback to API Key if configured
+        if (this.apiKey) {
+            try {
+                const encodedQuery = encodeURIComponent(query);
+                const fetchLimit = Math.min(limit * 2, 50);
+                const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=${fetchLimit}&q=${encodedQuery}&type=video&videoCategoryId=10&key=${this.apiKey}`;
+                const response = await fetch(url);
+                if (response.ok) {
+                    const searchData = await response.json();
+                    const items = searchData.items || [];
+                    const videoIds = items.map(i => i.id?.videoId).filter(Boolean);
+                    const detailedVideos = await fetchVideoDetails(videoIds);
+                    if (detailedVideos.length > 0) {
+                        const validVideos = [];
+                        for (const video of detailedVideos) {
+                            const validation = validateYouTubeTrack(video, video.contentDetails);
+                            if (validation.valid) validVideos.push(video);
+                        }
+                        const rankedVideos = rankValidResults(validVideos);
+                        if (rankedVideos.length > 0) {
+                            return rankedVideos.slice(0, limit).map(mapDetailedYoutubeToTrack);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn('[YouTubeProvider] Data API fallback notice:', err.message);
+            }
+        }
+
+        // 3. Final Fallback to yt-search
+        return this.searchFallback(query, limit);
     }
 
     async resolve(trackId) {

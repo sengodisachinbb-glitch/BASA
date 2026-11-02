@@ -21,6 +21,7 @@ const spotifyTrackIdResolver = require('./spotifyTrackIdResolver');
 const lyricsNormalizer = require('./lyricsNormalizer');
 const lrclibProvider = require('../lyricsProvider');
 const ytmusicProvider = require('../ytmusicProvider');
+const basa2LyricsProvider = require('./providers/basa2LyricsProvider');
 
 class LyricsOrchestrator {
     constructor(options = {}) {
@@ -119,6 +120,29 @@ class LyricsOrchestrator {
             }
         })();
         fetchTasks.push(lyricstifyTask);
+
+        // Task 1b: BASA 2.0 Cascade (PaxSenix / LRCLIB open sync)
+        const basa2Task = (async () => {
+            try {
+                const res = await basa2LyricsProvider.resolveLyrics(canonicalTrack);
+                if (res && res.lines && res.lines.length > 0) {
+                    return lyricsNormalizer.normalize({
+                        canonicalTrackId: canonicalId,
+                        provider: res.provider.toUpperCase(),
+                        sourceTrackId: null,
+                        language: 'unknown',
+                        syncType: res.syncType,
+                        lines: res.lines,
+                        plainLyrics: res.plainLyrics || '',
+                        syncedLyrics: res.syncedLyrics || null
+                    });
+                }
+                return null;
+            } catch (err) {
+                return null;
+            }
+        })();
+        fetchTasks.push(basa2Task);
 
         // Task 2: LRCLIB (existing primary lyrics provider)
         const lrclibTask = (async () => {

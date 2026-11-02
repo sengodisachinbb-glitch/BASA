@@ -22,6 +22,11 @@ app.use(express.urlencoded({ extended: true }));
 // Static files from public directory
 app.use(express.static(path.join(__dirname, 'public')));
 
+// BASA 2.0 Listen Together clock calibration endpoint
+app.get('/api/time', (req, res) => {
+    res.json({ time: Date.now() });
+});
+
 // --- Storage & Database Setup ---
 const isVercel = Boolean(process.env.VERCEL);
 const baseStorageDir = isVercel ? '/tmp' : __dirname;

@@ -22,6 +22,13 @@ const { isDisallowedShortFormCandidate } = require('./shortsDetector');
 const versionClassifier = require('./versionClassifier');
 const recommendationEngine = require('./recommendationEngine');
 
+function withTimeout(promise, ms = 3000, fallback = []) {
+    return Promise.race([
+        promise,
+        new Promise(resolve => setTimeout(() => resolve(fallback), ms))
+    ]);
+}
+
 class SearchOrchestrator {
     constructor() {
         // STRICT ARCHITECTURAL CONTRACT:
@@ -78,29 +85,25 @@ class SearchOrchestrator {
         // 6. Default: source === 'all' -> Unified multi-source resolution
         // Step 1: Concurrently query all enabled metadata providers with isolated fault tolerance (Promise.allSettled)
         const providerPromises = [
-            youtubeProvider.search(query, { limit }).catch(err => {
+            withTimeout(youtubeProvider.search(query, { limit }).catch(err => {
                 console.warn('[SearchOrchestrator] YouTube provider failed:', err.message);
                 return [];
-            }),
-            ytmusicProvider.search(query, { limit }).catch(err => {
-                console.warn('[SearchOrchestrator] YTMusic metadata provider notice:', err.message);
+            }), 3500),
+            withTimeout(ytmusicProvider.search(query, { limit }).catch(err => {
                 return [];
-            }),
-            spotifyProvider.search(query, { limit: Math.min(limit, 15) }).catch(err => {
-                console.warn('[SearchOrchestrator] Spotify metadata provider notice:', err.message);
+            }), 2000),
+            withTimeout(spotifyProvider.search(query, { limit: Math.min(limit, 15) }).catch(err => {
                 return [];
-            }),
-            jioSaavnProvider.search(query, { limit: Math.min(limit, 15) }).catch(err => {
-                console.warn('[SearchOrchestrator] JioSaavn provider failed:', err.message);
+            }), 2000),
+            withTimeout(jioSaavnProvider.search(query, { limit: Math.min(limit, 15) }).catch(err => {
                 return [];
-            }),
-            Promise.resolve().then(() => {
+            }), 2500),
+            withTimeout(Promise.resolve().then(() => {
                 if (db) return sourceResolver.resolveLocalTracks(query, db);
                 return [];
             }).catch(err => {
-                console.warn('[SearchOrchestrator] Local provider search error:', err.message);
                 return [];
-            })
+            }), 1500)
         ];
 
         const settled = await Promise.allSettled(providerPromises);
