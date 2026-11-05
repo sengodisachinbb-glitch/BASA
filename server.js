@@ -86,6 +86,14 @@ async function getDatabase() {
             }
             db.run(schema);
 
+            // BASA 2.0: Connected Accounts, Listening Events & Taste Schema
+            try {
+                const { initializeConnectedAccountsSchema } = require('./database/initConnectedAccounts');
+                initializeConnectedAccountsSchema(db);
+            } catch (err) {
+                console.warn('[DB] Connected accounts schema notice:', err.message);
+            }
+
             // Migrations for existing DBs
             try {
                 const tableInfo = db.exec("PRAGMA table_info(uploaded_tracks)");
@@ -162,6 +170,8 @@ app.use('/api/music', require('./routes/music'));
 app.use('/api/playlists', require('./routes/playlists'));
 app.use('/api/library', require('./routes/library'));
 app.use('/api/upload', require('./routes/upload'));
+app.use('/api/connected-accounts', require('./routes/connectedAccounts'));
+app.use('/api/unified-library', require('./routes/unifiedLibrary'));
 app.use('/api', require('./routes/recommendations'));
 
 // --- SPA Fallback ---

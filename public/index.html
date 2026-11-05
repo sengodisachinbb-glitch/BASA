@@ -1331,10 +1331,20 @@
 
         <!-- AUDIO SETTINGS MODAL -->
         <div id="audio-settings-modal" class="modal-overlay hidden">
-            <div class="modal glass-floating" style="max-width: 520px; max-height: 85vh; overflow-y: auto;">
+            <div class="modal glass-floating" style="max-width: 600px; max-height: 88vh; overflow-y: auto;">
                 <button class="modal-close" onclick="closeAudioSettingsModal()">✕</button>
-                <h2>⚙ Audio DSP &amp; Playback Settings</h2>
-                <div style="margin-top: 16px; display: flex; flex-direction: column; gap: 14px;">
+                <h2>⚙ Settings &amp; Connected Accounts</h2>
+
+                <!-- Settings Navigation Tabs -->
+                <div class="settings-tabs-bar" style="display: flex; gap: 6px; margin: 16px 0 16px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 8px; overflow-x: auto;">
+                    <button type="button" class="button button-secondary settings-tab-btn active" id="tab-btn-dsp" onclick="switchSettingsTab('dsp')" style="font-size: 12px; padding: 6px 12px;">⚙ Audio &amp; DSP</button>
+                    <button type="button" class="button button-secondary settings-tab-btn" id="tab-btn-accounts" onclick="switchSettingsTab('accounts')" style="font-size: 12px; padding: 6px 12px;">🔗 Connected Accounts</button>
+                    <button type="button" class="button button-secondary settings-tab-btn" id="tab-btn-taste" onclick="switchSettingsTab('taste')" style="font-size: 12px; padding: 6px 12px;">🧬 Taste &amp; Autoplay</button>
+                    <button type="button" class="button button-secondary settings-tab-btn" id="tab-btn-library" onclick="switchSettingsTab('library')" style="font-size: 12px; padding: 6px 12px;">📚 Unified Library</button>
+                </div>
+
+                <!-- TAB 1: AUDIO DSP & PLAYBACK -->
+                <div id="settings-tab-view-dsp" class="settings-tab-view" style="display: flex; flex-direction: column; gap: 14px;">
                     
                     <!-- DSP Master Mode -->
                     <div style="padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px;">
@@ -1565,6 +1575,157 @@
                             <span class="slider round"></span>
                         </label>
                     </div>
+                </div>
+
+                <!-- TAB 2: CONNECTED ACCOUNTS (Google & Spotify) -->
+                <div id="settings-tab-view-accounts" class="settings-tab-view hidden" style="display: flex; flex-direction: column; gap: 16px;">
+                    <!-- Google / YouTube Music Card -->
+                    <div style="padding: 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <div style="width: 32px; height: 32px; border-radius: 50%; background: #ea4335; display: grid; place-items: center; font-weight: bold; font-size: 16px;">G</div>
+                                <div>
+                                    <div style="font-weight: 700; font-size: 14px;">Google / YouTube Music</div>
+                                    <div id="google-account-status" style="font-size: 12px; color: var(--text-secondary);">Checking connection...</div>
+                                </div>
+                            </div>
+                            <div id="google-account-actions">
+                                <button type="button" class="button button-primary" id="btn-connect-google" onclick="connectGoogleAccount()" style="font-size: 12px; padding: 6px 14px;">Connect</button>
+                            </div>
+                        </div>
+                        <div style="font-size: 11px; color: var(--text-tertiary); margin-bottom: 12px;">
+                            Access playlists, liked music, and YouTube channel libraries directly mapped to BASA's canonical audio catalogue.
+                        </div>
+                        <!-- Secondary Actions: Sync & Takeout -->
+                        <div id="google-sync-controls" style="display: none; gap: 8px; flex-wrap: wrap; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 10px;">
+                            <button type="button" class="button button-secondary" onclick="syncGoogleLibrary()" style="font-size: 11px; padding: 4px 10px;">🔄 Sync Playlists &amp; Likes</button>
+                            <button type="button" class="button button-secondary" onclick="toggleTakeoutModal()" style="font-size: 11px; padding: 4px 10px;">📁 Import Google Takeout History</button>
+                            <button type="button" class="button button-secondary" onclick="disconnectGoogleAccount()" style="font-size: 11px; padding: 4px 10px; color: #ef4444; border-color: rgba(239,68,68,0.3);">Disconnect &amp; Revoke</button>
+                        </div>
+                    </div>
+
+                    <!-- Spotify Card (Strict Developer Policy Compliance) -->
+                    <div style="padding: 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <div style="width: 32px; height: 32px; border-radius: 50%; background: #1db954; display: grid; place-items: center; font-weight: bold; font-size: 16px; color: #000;">S</div>
+                                <div>
+                                    <div style="font-weight: 700; font-size: 14px;">Spotify</div>
+                                    <div id="spotify-account-status" style="font-size: 12px; color: var(--text-secondary);">Checking connection...</div>
+                                </div>
+                            </div>
+                            <div id="spotify-account-actions">
+                                <button type="button" class="button button-primary" id="btn-connect-spotify" onclick="connectSpotifyAccount()" style="font-size: 12px; padding: 6px 14px;">Connect</button>
+                            </div>
+                        </div>
+                        <div style="font-size: 11px; color: var(--text-tertiary); margin-bottom: 12px;">
+                            Import saved tracks, playlists, and top items to your provider-linked BASA library.
+                        </div>
+                        <div style="padding: 8px 12px; background: rgba(29, 185, 84, 0.08); border: 1px solid rgba(29, 185, 84, 0.2); border-radius: 6px; font-size: 11px; color: #a7f3d0; margin-bottom: 10px;">
+                            🛡 <strong>Spotify Developer Policy:</strong> Spotify library data is treated as an isolated, provider-linked library feature. It is strictly never used to construct user taste profiles or train recommendation models.
+                        </div>
+                        <div id="spotify-sync-controls" style="display: none; gap: 8px; flex-wrap: wrap; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 10px;">
+                            <button type="button" class="button button-secondary" onclick="syncSpotifyLibrary()" style="font-size: 11px; padding: 4px 10px;">🔄 Sync Saved Tracks &amp; Playlists</button>
+                            <button type="button" class="button button-secondary" onclick="disconnectSpotifyAccount()" style="font-size: 11px; padding: 4px 10px; color: #ef4444; border-color: rgba(239,68,68,0.3);">Disconnect</button>
+                        </div>
+                    </div>
+
+                    <!-- Google Takeout Upload Box -->
+                    <div id="takeout-import-panel" style="display: none; padding: 14px; background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.15); border-radius: 8px;">
+                        <div style="font-weight: 600; font-size: 13px; margin-bottom: 4px;">📂 Google Takeout History Import</div>
+                        <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 10px;">
+                            Since official YouTube Data API does not expose full YouTube Music listening history, you can upload your Google Takeout <code style="color:var(--accent-bright);">watch-history.json</code> or CSV here to import your complete listening logs.
+                        </div>
+                        <input type="file" id="takeout-file-input" accept=".json,.csv" style="font-size: 11px; margin-bottom: 10px; display: block; color: var(--text-secondary);" onchange="handleTakeoutFileSelected(event)">
+                        <button type="button" class="button button-secondary" id="btn-upload-takeout" onclick="uploadTakeoutHistory()" style="font-size: 11px; padding: 4px 12px;" disabled>Upload &amp; Match Takeout Tracks</button>
+                    </div>
+                </div>
+
+                <!-- TAB 3: PERSONAL TASTE & AUTOPLAY INTELLIGENCE -->
+                <div id="settings-tab-view-taste" class="settings-tab-view hidden" style="display: flex; flex-direction: column; gap: 14px;">
+                    <div style="padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <span style="font-weight: 700; font-size: 14px;">🧠 Dynamic Taste Profile</span>
+                            <span style="font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(147,51,234,0.2); color: #c084fc; font-weight: 600;">7-Day Half-Life Decay</span>
+                        </div>
+                        <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 12px;">
+                            Learned continuously from your 12 native BASA listening events (plays, skips, likes, and replays).
+                        </div>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12px; margin-bottom: 12px;">
+                            <div style="padding: 8px; background: rgba(0,0,0,0.25); border-radius: 6px;">
+                                <div style="color: var(--text-tertiary); font-size: 10px; text-transform: uppercase;">Top Artists</div>
+                                <div id="taste-top-artists" style="font-weight: 600; margin-top: 4px;">Loading...</div>
+                            </div>
+                            <div style="padding: 8px; background: rgba(0,0,0,0.25); border-radius: 6px;">
+                                <div style="color: var(--text-tertiary); font-size: 10px; text-transform: uppercase;">Top Composers</div>
+                                <div id="taste-top-composers" style="font-weight: 600; margin-top: 4px;">Loading...</div>
+                            </div>
+                            <div style="padding: 8px; background: rgba(0,0,0,0.25); border-radius: 6px;">
+                                <div style="color: var(--text-tertiary); font-size: 10px; text-transform: uppercase;">Active Session Mood</div>
+                                <div id="taste-session-mood" style="font-weight: 600; margin-top: 4px;">Chill (0.45 Energy)</div>
+                            </div>
+                            <div style="padding: 8px; background: rgba(0,0,0,0.25); border-radius: 6px;">
+                                <div style="color: var(--text-tertiary); font-size: 10px; text-transform: uppercase;">Listening Metrics</div>
+                                <div id="taste-metrics" style="font-weight: 600; margin-top: 4px;">—</div>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; justify-content: flex-end;">
+                            <button type="button" class="button button-secondary" onclick="resetTasteProfile()" style="font-size: 11px; padding: 4px 10px; color: #ef4444; border-color: rgba(239,68,68,0.3);">Clear Taste Profile Signals</button>
+                        </div>
+                    </div>
+
+                    <!-- Autoplay Preferences -->
+                    <div style="padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                        <span style="font-weight: 700; font-size: 14px; display: block; margin-bottom: 6px;">🎵 Autoplay Engine Settings</span>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <div>
+                                <div style="font-weight: 600; font-size: 13px;">Enable Intelligent Autoplay</div>
+                                <div style="font-size: 11px; color: var(--text-secondary);">Endlessly queue explainable, musically compatible tracks</div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="setting-autoplay-enabled" checked onchange="toggleAutoPlaySetting(this.checked)">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <div style="font-weight: 600; font-size: 13px;">Broader Cross-Language Discovery</div>
+                                <div style="font-size: 11px; color: var(--text-secondary);">Allow Autoplay to explore adjacent languages and novel genres</div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="setting-broader-discovery" onchange="toggleBroaderDiscovery(this.checked)">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 4: UNIFIED MUSIC LIBRARY -->
+                <div id="settings-tab-view-library" class="settings-tab-view hidden" style="display: flex; flex-direction: column; gap: 14px;">
+                    <div style="padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                        <span style="font-weight: 700; font-size: 14px; display: block; margin-bottom: 6px;">📚 Unified Library Overview</span>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12px; margin-bottom: 12px;">
+                            <div style="padding: 8px; background: rgba(0,0,0,0.25); border-radius: 6px;">
+                                <div style="color: var(--text-tertiary); font-size: 10px; text-transform: uppercase;">Imported Playlists</div>
+                                <div id="lib-imported-playlists-count" style="font-weight: 600; font-size: 16px; margin-top: 2px;">0</div>
+                            </div>
+                            <div style="padding: 8px; background: rgba(0,0,0,0.25); border-radius: 6px;">
+                                <div style="color: var(--text-tertiary); font-size: 10px; text-transform: uppercase;">Imported Tracks</div>
+                                <div id="lib-imported-tracks-count" style="font-weight: 600; font-size: 16px; margin-top: 2px;">0</div>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button type="button" class="button button-secondary" onclick="scanLibraryDuplicates()" style="font-size: 11px; padding: 4px 10px;">🔍 Scan For Duplicate Tracks</button>
+                        </div>
+                    </div>
+
+                    <div id="duplicates-results-panel" style="display: none; padding: 12px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;">
+                        <div style="font-weight: 600; font-size: 12px; margin-bottom: 6px;">Duplicate Candidates Found:</div>
+                        <div id="duplicates-list" style="font-size: 11px; max-height: 120px; overflow-y: auto;"></div>
+                    </div>
+                </div>
                 </div>
             </div>
         </div>

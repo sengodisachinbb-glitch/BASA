@@ -5207,6 +5207,35 @@ input:checked+.slider:before {
    BASA V2 — DSP & AUDIO PIPELINE INSPECTOR STYLES
    ============================================================ */
 
+/* ============================================================
+   BASA 2.0 — CONNECTED ACCOUNTS & SETTINGS STYLES
+   ============================================================ */
+.settings-tab-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.settings-tab-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.settings-tab-btn.active {
+  background: var(--accent-gradient, linear-gradient(135deg, #10b981, #059669));
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #fff;
+  font-weight: 700;
+}
+
+.settings-tab-view.hidden {
+  display: none !important;
+}
+
 .ab-toggle-btn {
   font-size: 11px;
   font-weight: 700;

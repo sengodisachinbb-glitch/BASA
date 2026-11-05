@@ -2366,11 +2366,18 @@ function playTrack(trackData, forceLocal = false, isBackwardNav = false, fromQue
                     durationSeconds: state.currentTrack.duration || 0
                 })
             }).catch(() => {});
+
+            // BASA 2.0 Native Event Recording
+            if (action === 'skip') {
+                recordBasaEvent('track_skipped', { track: state.currentTrack, skipTimestamp: elapsedSec });
+            } else if (action === 'complete') {
+                recordBasaEvent('track_completed', { track: state.currentTrack, percentageCompleted: 100 });
+            }
         }
     }
     state.currentTrackStartTime = Date.now();
 
-    // Log play event to /api/events (Step 3)
+    // Log play event to /api/events & BASA 2.0 Native Events
     if (trackData && trackData.id) {
         api('/events', {
             method: 'POST',
@@ -2381,6 +2388,8 @@ function playTrack(trackData, forceLocal = false, isBackwardNav = false, fromQue
                 durationSeconds: trackData.duration || 0
             })
         }).catch(() => {});
+
+        recordBasaEvent('track_started', { track: trackData });
     }
 
     // Save outgoing track into previousTracks (unless navigating backwards)
@@ -2644,6 +2653,7 @@ function addToQueue(trackData) {
     if (!state.userQueue) state.userQueue = [];
     state.userQueue.push(entry);
     saveQueueState();
+    recordBasaEvent('add_to_queue', { track: trackData });
     showToast(`Added "${trackData.title || 'song'}" to Queue`, 'info');
     updateQueueBadge();
     renderQueueDrawer();
@@ -3898,6 +3908,8 @@ async function toggleLike(trackId, source, encodedData) {
             }).catch(() => {});
         }
 
+        recordBasaEvent(isLiked ? 'unlike' : 'like', { track: trackData });
+
         // Update player like button
         updatePlayerLikeButton();
 
@@ -4388,6 +4400,15 @@ document.addEventListener('DOMContentLoaded', () => {
             renderQueueDrawer();
             // Note: Does NOT auto-play so user retains control
         }
+    }
+
+    // Check connected accounts callback notice
+    const urlParams = new URLSearchParams(window.location.search);
+    const connectedProvider = urlParams.get('connected');
+    if (connectedProvider) {
+        showToast(`Successfully connected ${connectedProvider === 'google' ? 'Google / YouTube Music' : 'Spotify'}!`, 'success');
+        const cleanUrl = window.location.pathname + window.location.hash;
+        window.history.replaceState({}, document.title, cleanUrl);
     }
 });
 
@@ -5364,6 +5385,360 @@ function closeAudioSettingsModal() {
         modal.classList.add('hidden');
         modal.style.display = 'none';
     }
+}
+
+// =========================================================================
+// BASA 2.0 — CONNECTED ACCOUNTS & SETTINGS TABS
+// =========================================================================
+
+function switchSettingsTab(tabName) {
+    const tabs = ['dsp', 'accounts', 'taste', 'library'];
+    tabs.forEach(t => {
+        const btn = document.getElementById(`tab-btn-${t}`);
+        const view = document.getElementById(`settings-tab-view-${t}`);
+        if (btn) btn.classList.toggle('active', t === tabName);
+        if (view) {
+            if (t === tabName) {
+                view.classList.remove('hidden');
+                view.style.display = 'flex';
+            } else {
+                view.classList.add('hidden');
+                view.style.display = 'none';
+            }
+        }
+    });
+
+    if (tabName === 'accounts') loadConnectedAccounts();
+    if (tabName === 'taste') loadTasteProfile();
+    if (tabName === 'library') loadUnifiedLibraryStats();
+}
+
+let selectedTakeoutText = null;
+let selectedTakeoutFormat = 'json';
+
+function handleTakeoutFileSelected(event) {
+    const file = event.target.files?.[0];
+    const uploadBtn = document.getElementById('btn-upload-takeout');
+    if (!file) {
+        selectedTakeoutText = null;
+        if (uploadBtn) uploadBtn.disabled = true;
+        return;
+    }
+
+    selectedTakeoutFormat = file.name.endsWith('.csv') ? 'csv' : 'json';
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        selectedTakeoutText = e.target.result;
+        if (uploadBtn) uploadBtn.disabled = false;
+        showToast(`Loaded ${file.name} (${Math.round(file.size / 1024)} KB). Click upload to import.`);
+    };
+    reader.readAsText(file);
+}
+
+function toggleTakeoutModal() {
+    const panel = document.getElementById('takeout-import-panel');
+    if (panel) {
+        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
+async function uploadTakeoutHistory() {
+    if (!selectedTakeoutText) return;
+    const uploadBtn = document.getElementById('btn-upload-takeout');
+    if (uploadBtn) uploadBtn.disabled = true;
+
+    showToast('Importing Takeout watch history...', 'info');
+    try {
+        const res = await fetch('/api/connected-accounts/google/takeout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...(state.token ? { 'Authorization': `Bearer ${state.token}` } : {}) },
+            body: JSON.stringify({ content: selectedTakeoutText, format: selectedTakeoutFormat })
+        }).then(r => r.json());
+
+        if (res.success) {
+            showToast(`Takeout Imported: ${res.importedCount} tracks (${res.matchedCount} canonical matches)`, 'success');
+            loadUnifiedLibraryStats();
+        } else {
+            showToast(res.error || 'Takeout import failed', 'error');
+        }
+    } catch (err) {
+        showToast('Takeout import failed: ' + err.message, 'error');
+    } finally {
+        if (uploadBtn) uploadBtn.disabled = false;
+    }
+}
+
+async function loadConnectedAccounts() {
+    try {
+        const res = await fetch('/api/connected-accounts', {
+            headers: state.token ? { 'Authorization': `Bearer ${state.token}` } : {}
+        }).then(r => r.json());
+
+        const accounts = res.accounts || [];
+        const googleAcc = accounts.find(a => a.provider === 'google' && a.status === 'connected');
+        const spotifyAcc = accounts.find(a => a.provider === 'spotify' && a.status === 'connected');
+
+        // Update Google card
+        const gStatus = document.getElementById('google-account-status');
+        const gActions = document.getElementById('google-account-actions');
+        const gControls = document.getElementById('google-sync-controls');
+
+        if (googleAcc) {
+            if (gStatus) gStatus.textContent = `Connected as ${googleAcc.provider_email || googleAcc.provider_display_name || 'Google User'}`;
+            if (gActions) gActions.innerHTML = `<span style="font-size:11px; color:#38ef7d; font-weight:600;">✓ Connected</span>`;
+            if (gControls) gControls.style.display = 'flex';
+        } else {
+            if (gStatus) gStatus.textContent = 'Not connected';
+            if (gActions) gActions.innerHTML = `<button type="button" class="button button-primary" onclick="connectGoogleAccount()" style="font-size: 12px; padding: 6px 14px;">Connect</button>`;
+            if (gControls) gControls.style.display = 'none';
+        }
+
+        // Update Spotify card
+        const spStatus = document.getElementById('spotify-account-status');
+        const spActions = document.getElementById('spotify-account-actions');
+        const spControls = document.getElementById('spotify-sync-controls');
+
+        if (spotifyAcc) {
+            if (spStatus) spStatus.textContent = `Connected as ${spotifyAcc.provider_display_name || spotifyAcc.provider_email || 'Spotify User'}`;
+            if (spActions) spActions.innerHTML = `<span style="font-size:11px; color:#38ef7d; font-weight:600;">✓ Connected</span>`;
+            if (spControls) spControls.style.display = 'flex';
+        } else {
+            if (spStatus) spStatus.textContent = 'Not connected';
+            if (spActions) spActions.innerHTML = `<button type="button" class="button button-primary" onclick="connectSpotifyAccount()" style="font-size: 12px; padding: 6px 14px;">Connect</button>`;
+            if (spControls) spControls.style.display = 'none';
+        }
+    } catch (err) {
+        console.warn('[ConnectedAccounts] load notice:', err.message);
+    }
+}
+
+async function connectGoogleAccount() {
+    try {
+        const res = await fetch('/api/connected-accounts/google/auth-url').then(r => r.json());
+        if (res.authUrl) {
+            window.location.href = res.authUrl;
+        }
+    } catch (err) {
+        showToast('Failed to start Google sign-in: ' + err.message, 'error');
+    }
+}
+
+async function syncGoogleLibrary() {
+    showToast('Syncing YouTube playlists & likes...', 'info');
+    try {
+        const res = await fetch('/api/connected-accounts/google/sync', {
+            method: 'POST',
+            headers: state.token ? { 'Authorization': `Bearer ${state.token}` } : {}
+        }).then(r => r.json());
+
+        if (res.success) {
+            showToast(`Synced ${res.playlistsSynced} playlists, ${res.tracksImported} tracks (${res.tracksMatched} matched)`, 'success');
+        } else {
+            showToast(res.error || 'Google sync failed', 'error');
+        }
+    } catch (err) {
+        showToast('Google sync error: ' + err.message, 'error');
+    }
+}
+
+async function disconnectGoogleAccount() {
+    if (!confirm('Are you sure you want to disconnect and revoke your Google account?')) return;
+    try {
+        await fetch('/api/connected-accounts/google/disconnect', {
+            method: 'POST',
+            headers: state.token ? { 'Authorization': `Bearer ${state.token}` } : {}
+        });
+        showToast('Google account disconnected and revoked', 'info');
+        loadConnectedAccounts();
+    } catch (err) {
+        showToast('Failed to disconnect: ' + err.message, 'error');
+    }
+}
+
+async function connectSpotifyAccount() {
+    try {
+        const res = await fetch('/api/connected-accounts/spotify/auth-url').then(r => r.json());
+        if (res.authUrl) {
+            window.location.href = res.authUrl;
+        }
+    } catch (err) {
+        showToast('Failed to start Spotify sign-in: ' + err.message, 'error');
+    }
+}
+
+async function syncSpotifyLibrary() {
+    showToast('Syncing Spotify saved tracks and playlists...', 'info');
+    try {
+        const res = await fetch('/api/connected-accounts/spotify/sync', {
+            method: 'POST',
+            headers: state.token ? { 'Authorization': `Bearer ${state.token}` } : {}
+        }).then(r => r.json());
+
+        if (res.success) {
+            showToast(`Synced Spotify: ${res.savedTracksImported} liked tracks, ${res.playlistsSynced} playlists (${res.totalMatched} matched)`, 'success');
+        } else {
+            showToast(res.error || 'Spotify sync failed', 'error');
+        }
+    } catch (err) {
+        showToast('Spotify sync error: ' + err.message, 'error');
+    }
+}
+
+async function disconnectSpotifyAccount() {
+    if (!confirm('Are you sure you want to disconnect your Spotify account?')) return;
+    try {
+        await fetch('/api/connected-accounts/spotify/disconnect', {
+            method: 'POST',
+            headers: state.token ? { 'Authorization': `Bearer ${state.token}` } : {}
+        });
+        showToast('Spotify account disconnected', 'info');
+        loadConnectedAccounts();
+    } catch (err) {
+        showToast('Failed to disconnect Spotify: ' + err.message, 'error');
+    }
+}
+
+async function loadTasteProfile() {
+    try {
+        const res = await fetch('/api/taste-profile', {
+            headers: state.token ? { 'Authorization': `Bearer ${state.token}` } : {}
+        }).then(r => r.json());
+
+        const profile = res.profile || {};
+        const topArtistsEl = document.getElementById('taste-top-artists');
+        const topComposersEl = document.getElementById('taste-top-composers');
+        const sessionMoodEl = document.getElementById('taste-session-mood');
+        const metricsEl = document.getElementById('taste-metrics');
+
+        if (topArtistsEl) {
+            const artists = (profile.topArtists || []).map(a => a.name).slice(0, 3);
+            topArtistsEl.textContent = artists.length > 0 ? artists.join(', ') : 'Collecting events...';
+        }
+
+        if (topComposersEl) {
+            const composers = (profile.topComposers || []).map(c => c.name).slice(0, 3);
+            topComposersEl.textContent = composers.length > 0 ? composers.join(', ') : 'Collecting events...';
+        }
+
+        if (sessionMoodEl && profile.currentMoodVector) {
+            sessionMoodEl.textContent = `${profile.currentMoodVector.activeMood || 'Chill'} (${profile.currentMoodVector.activeEnergy || 0.5} Energy)`;
+        }
+
+        if (metricsEl) {
+            metricsEl.textContent = `Completed: ${Math.round((profile.completionRate || 0) * 100)}% | Replay: ${Math.round((profile.replayFrequency || 0) * 100)}%`;
+        }
+    } catch (err) {
+        console.warn('[TasteProfile] load notice:', err.message);
+    }
+}
+
+async function resetTasteProfile() {
+    if (!confirm('Reset your listening history and taste profile signals?')) return;
+    try {
+        await fetch('/api/events', {
+            method: 'DELETE',
+            headers: state.token ? { 'Authorization': `Bearer ${state.token}` } : {}
+        });
+        showToast('Taste signals cleared successfully', 'info');
+        loadTasteProfile();
+    } catch (err) {
+        showToast('Failed to reset: ' + err.message, 'error');
+    }
+}
+
+function toggleAutoPlaySetting(enabled) {
+    if (window.playerQueueStore) {
+        window.playerQueueStore.setAutoplay(enabled);
+    }
+    state.autoplayEnabled = Boolean(enabled);
+    showToast(`Autoplay ${enabled ? 'Enabled' : 'Disabled'}`, 'info');
+}
+
+function toggleBroaderDiscovery(enabled) {
+    state.broaderDiscovery = Boolean(enabled);
+    showToast(`Broader Discovery ${enabled ? 'Enabled' : 'Disabled'}`, 'info');
+}
+
+async function loadUnifiedLibraryStats() {
+    try {
+        const res = await fetch('/api/unified-library', {
+            headers: state.token ? { 'Authorization': `Bearer ${state.token}` } : {}
+        }).then(r => r.json());
+
+        const plCountEl = document.getElementById('lib-imported-playlists-count');
+        const trCountEl = document.getElementById('lib-imported-tracks-count');
+
+        if (plCountEl) plCountEl.textContent = res.playlistCount || 0;
+        if (trCountEl) trCountEl.textContent = res.trackCount || 0;
+    } catch (e) {}
+}
+
+async function scanLibraryDuplicates() {
+    try {
+        showToast('Scanning library for duplicate tracks...', 'info');
+        const res = await fetch('/api/unified-library/duplicates', {
+            headers: state.token ? { 'Authorization': `Bearer ${state.token}` } : {}
+        }).then(r => r.json());
+
+        const panel = document.getElementById('duplicates-results-panel');
+        const list = document.getElementById('duplicates-list');
+
+        if (panel) panel.style.display = 'block';
+        if (list) {
+            if (!res.duplicates || res.duplicates.length === 0) {
+                list.innerHTML = '<div style="color:var(--text-secondary);">No duplicates detected across your library.</div>';
+            } else {
+                list.innerHTML = res.duplicates.map(d => `
+                    <div style="padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.04);">
+                        <strong>${escapeHtml(d.trackA.title)}</strong> (${d.trackA.provider}) &harr; 
+                        <strong>${escapeHtml(d.trackB.title)}</strong> (${d.trackB.provider})
+                        <span style="color:#38ef7d; margin-left:6px;">${Math.round(d.confidence * 100)}% match</span>
+                    </div>
+                `).join('');
+            }
+        }
+    } catch (err) {
+        showToast('Duplicates scan error: ' + err.message, 'error');
+    }
+}
+
+/**
+ * Native 12-Event Recording Helper for BASA 2.0
+ */
+function recordBasaEvent(eventType, payload = {}) {
+    const track = payload.track || state.currentTrack;
+    if (!track) return;
+
+    const body = {
+        eventType,
+        trackId: String(track.id),
+        canonicalTrackId: track.canonicalTrackId || track.id,
+        durationSeconds: track.duration || 0,
+        percentageCompleted: payload.percentageCompleted || 0,
+        skipTimestamp: payload.skipTimestamp || 0,
+        contextSource: payload.contextSource || 'autoplay',
+        metadata: {
+            title: track.title,
+            artist: track.artist,
+            album: track.album,
+            genre: track.genre,
+            mood: track.mood,
+            vibe: track.vibe_tags || track.vibe,
+            language: track.language,
+            energy: track.energy,
+            bpm: track.tempo_bpm || track.bpm,
+            musicDirector: track.musicDirector || track.music_director
+        }
+    };
+
+    fetch('/api/basa-events', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(state.token ? { 'Authorization': `Bearer ${state.token}` } : {})
+        },
+        body: JSON.stringify(body)
+    }).catch(() => {});
 }
 
 function savePlaybackSetting(key, value) {
@@ -6470,6 +6845,25 @@ window.renderPlayerQualityBadge = renderPlayerQualityBadge;
 window.handleQueueDragStart = handleQueueDragStart;
 window.handleQueueDragOver = handleQueueDragOver;
 window.handleQueueDrop = handleQueueDrop;
+
+// BASA 2.0 Connected Accounts & Autoplay Window Bindings
+window.switchSettingsTab = switchSettingsTab;
+window.connectGoogleAccount = connectGoogleAccount;
+window.syncGoogleLibrary = syncGoogleLibrary;
+window.disconnectGoogleAccount = disconnectGoogleAccount;
+window.connectSpotifyAccount = connectSpotifyAccount;
+window.syncSpotifyLibrary = syncSpotifyLibrary;
+window.disconnectSpotifyAccount = disconnectSpotifyAccount;
+window.toggleTakeoutModal = toggleTakeoutModal;
+window.handleTakeoutFileSelected = handleTakeoutFileSelected;
+window.uploadTakeoutHistory = uploadTakeoutHistory;
+window.loadTasteProfile = loadTasteProfile;
+window.resetTasteProfile = resetTasteProfile;
+window.toggleAutoPlaySetting = toggleAutoPlaySetting;
+window.toggleBroaderDiscovery = toggleBroaderDiscovery;
+window.loadUnifiedLibraryStats = loadUnifiedLibraryStats;
+window.scanLibraryDuplicates = scanLibraryDuplicates;
+window.recordBasaEvent = recordBasaEvent;
 
 // ==========================================
 // PWA INSTALLATION & SERVICE WORKER ENGINE
