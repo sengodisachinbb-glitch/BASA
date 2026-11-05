@@ -1390,6 +1390,12 @@ function toggleNowPlayingSidecar(forcedState) {
     if (toggleBtn) {
         toggleBtn.classList.toggle('active', !willCollapse);
     }
+    if (!willCollapse) {
+        const npCanvas = document.getElementById('np-visualizer-canvas');
+        if (npCanvas && window.eqVisualizer && window.dspEngine && window.dspEngine.analyzer) {
+            window.eqVisualizer.startLiveVisualizer(npCanvas, window.dspEngine.analyzer);
+        }
+    }
     try {
         localStorage.setItem('basa_now_playing_sidecar', willCollapse ? '0' : '1');
     } catch (e) {}
@@ -1407,6 +1413,11 @@ function updateNowPlayingSidecar(trackData) {
     if (npTitle) npTitle.textContent = trackData.title || 'Not Playing';
     if (npArtist) npArtist.textContent = trackData.artist || '';
     if (npContext) npContext.textContent = trackData.title ? `Based on ${trackData.title}` : 'Now Playing';
+
+    const npCanvas = document.getElementById('np-visualizer-canvas');
+    if (npCanvas && window.eqVisualizer && window.dspEngine && window.dspEngine.analyzer) {
+        window.eqVisualizer.startLiveVisualizer(npCanvas, window.dspEngine.analyzer);
+    }
 
     if (npLikeBtn && trackData.id) {
         checkIfLiked(trackData.id, trackData.source).then(liked => {
@@ -4473,53 +4484,75 @@ function setupFullScreenPlayer() {
     // Default to artwork centered mode initially
     setFsPlayerMode('artwork');
 
-    if (trackInfoBtn && fsPlayer) {
-        trackInfoBtn.addEventListener('click', () => {
-            if (!state.currentTrack) return;
-            fsPlayer.classList.remove('hidden');
-            fsPlayer.setAttribute('aria-hidden', 'false');
-            document.body.classList.add('fullscreen-player-open');
-            // Allow display change before opacity fade
-            setTimeout(() => fsPlayer.classList.add('active'), 10);
-            
-            // Re-extract color if cover was updated before it was open
-            const img = document.getElementById('fs-cover-image');
-            if (img && img.src) extractColorsFromImage(img);
+    window.openFullScreenPlayer = function() {
+        if (!state.currentTrack) return;
+        if (!fsPlayer) return;
+        fsPlayer.classList.remove('hidden');
+        fsPlayer.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('fullscreen-player-open');
+        // Allow display change before opacity fade
+        setTimeout(() => fsPlayer.classList.add('active'), 10);
+        
+        // Re-extract color if cover was updated before it was open
+        const img = document.getElementById('fs-cover-image');
+        if (img && img.src) extractColorsFromImage(img);
 
-            // Determine mode on open
-            if (isLyricsAvailable && userWantsLyrics) {
-                setFsPlayerMode('lyrics');
-            } else {
-                setFsPlayerMode('artwork');
-            }
+        // Determine mode on open
+        if (isLyricsAvailable && userWantsLyrics) {
+            setFsPlayerMode('lyrics');
+        } else {
+            setFsPlayerMode('artwork');
+        }
 
-            // Ensure lyrics are loaded
-            if (state.currentTrack && (!currentLyricsData || currentLyricsTrackId !== state.currentTrack.id)) {
-                loadLyricsForTrack(state.currentTrack);
-            } else if (currentLyricsData && currentLyricsData.synced && fsPlayerMode === 'lyrics') {
-                setTimeout(() => {
-                    const ct = window.playbackManager ? window.playbackManager.getCurrentTime() : 0;
-                    syncLyricsTick(ct, true);
-                }, 120);
-            }
+        // Ensure lyrics are loaded
+        if (state.currentTrack && (!currentLyricsData || currentLyricsTrackId !== state.currentTrack.id)) {
+            loadLyricsForTrack(state.currentTrack);
+        } else if (currentLyricsData && currentLyricsData.synced && fsPlayerMode === 'lyrics') {
+            setTimeout(() => {
+                const ct = window.playbackManager ? window.playbackManager.getCurrentTime() : 0;
+                syncLyricsTick(ct, true);
+            }, 120);
+        }
 
-            // Start live audio visualizer for Fullscreen Player
-            const visCanvas = document.getElementById('fs-visualizer-canvas');
-            if (visCanvas && window.eqVisualizer && window.dspEngine && window.dspEngine.analyzer) {
-                window.eqVisualizer.startLiveVisualizer(visCanvas, window.dspEngine.analyzer);
-            }
-        });
+        // Start live audio visualizer for Fullscreen Player
+        const visCanvas = document.getElementById('fs-visualizer-canvas');
+        if (visCanvas && window.eqVisualizer && window.dspEngine && window.dspEngine.analyzer) {
+            window.eqVisualizer.startLiveVisualizer(visCanvas, window.dspEngine.analyzer);
+        }
+    };
+
+    if (trackInfoBtn) {
+        trackInfoBtn.addEventListener('click', window.openFullScreenPlayer);
     }
 
-    // Toggle spectrum / waveform on visualizer canvas click
+    // Toggle 3D waveform / spectrum on visualizer canvas click
     const visCanvasEl = document.getElementById('fs-visualizer-canvas');
     if (visCanvasEl) {
         visCanvasEl.addEventListener('click', () => {
             if (window.eqVisualizer) {
                 const newMode = window.eqVisualizer.toggleMode();
-                showToast(`Visualizer mode: ${newMode}`, 'info');
+                const label = newMode === '3D_WAVEFORM' ? 'Smooth 3D Waveform' : 'Spectrum Analyzer';
+                showToast(`Visualizer mode: ${label}`, 'info');
             }
         });
+    }
+
+    const npCanvasEl = document.getElementById('np-visualizer-canvas');
+    if (npCanvasEl) {
+        npCanvasEl.addEventListener('click', () => {
+            if (window.eqVisualizer) {
+                const newMode = window.eqVisualizer.toggleMode();
+                const label = newMode === '3D_WAVEFORM' ? 'Smooth 3D Waveform' : 'Spectrum Analyzer';
+                showToast(`Visualizer mode: ${label}`, 'info');
+            }
+        });
+        // If sidecar is initially open, start visualizer
+        const sidecar = document.getElementById('now-playing-panel');
+        if (sidecar && !sidecar.classList.contains('collapsed')) {
+            if (window.eqVisualizer && window.dspEngine && window.dspEngine.analyzer) {
+                window.eqVisualizer.startLiveVisualizer(npCanvasEl, window.dspEngine.analyzer);
+            }
+        }
     }
 
     // Native Fullscreen toggle button (top right: ⤢)
