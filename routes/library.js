@@ -1,6 +1,7 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { requireAuth } = require('../middleware/auth');
+const databaseAdapter = require('../services/databaseAdapter');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -19,74 +20,116 @@ function getAll(db, sql, params = []) {
 function runSql(db, sql, params = []) { db.run(sql, params); }
 
 // GET /api/library/liked
-router.get('/liked', (req, res) => {
-    const db = req.app.locals.db;
-    const tracks = getAll(db, 'SELECT * FROM liked_tracks WHERE user_id = ? ORDER BY liked_at DESC', [req.user.id]);
-    const parsed = tracks.map(t => ({ ...t, track_data: JSON.parse(t.track_data_json) }));
-    res.json({ tracks: parsed });
+router.get('/liked', async (req, res) => {
+    try {
+        const db = req.app.locals.db;
+        const tracks = await databaseAdapter.getLikedTracks(db, req.user.id);
+        const parsed = tracks.map(t => ({
+            ...t,
+            track_data: typeof t.track_data === 'object' ? t.track_data : JSON.parse(t.track_data_json || '{}')
+        }));
+        res.json({ tracks: parsed, backend: databaseAdapter.getBackend() });
+    } catch (err) {
+        if (err.code === 'DATABASE_UNAVAILABLE') {
+            return res.status(503).json({ error: 'Database unavailable', message: err.message });
+        }
+        res.status(500).json({ error: 'Failed to fetch liked tracks', message: err.message });
+    }
 });
 
 // POST /api/library/like
-router.post('/like', (req, res) => {
-    const db = req.app.locals.db;
-    const { track_id, track_source, track_data } = req.body;
-    if (!track_id || !track_source || !track_data) return res.status(400).json({ error: 'track_id, track_source, and track_data are required' });
+router.post('/like', async (req, res) => {
+    try {
+        const db = req.app.locals.db;
+        const saveDb = req.app.locals.saveDb;
+        const { track_id, track_source, track_data } = req.body;
+        const idempotencyKey = req.headers['x-idempotency-key'] || req.body.idempotency_key || null;
 
-    const existing = getOne(db, 'SELECT id FROM liked_tracks WHERE user_id = ? AND track_id = ? AND track_source = ?',
-        [req.user.id, String(track_id), track_source]);
-    if (existing) return res.json({ message: 'Already liked', liked: true });
+        if (!track_id || !track_source || !track_data) {
+            return res.status(400).json({ error: 'track_id, track_source, and track_data are required' });
+        }
 
-    const id = uuidv4();
-    runSql(db, 'INSERT INTO liked_tracks (id, user_id, track_id, track_source, track_data_json) VALUES (?, ?, ?, ?, ?)',
-        [id, req.user.id, String(track_id), track_source, JSON.stringify(track_data)]);
-    req.app.locals.saveDb();
-    res.status(201).json({ message: 'Track liked', liked: true });
+        const result = await databaseAdapter.likeTrack(db, saveDb, req.user.id, track_id, track_source, track_data, idempotencyKey);
+        res.status(201).json({ message: 'Track liked', liked: true, ...result });
+    } catch (err) {
+        if (err.code === 'DATABASE_UNAVAILABLE') {
+            return res.status(503).json({ error: 'Database unavailable', message: err.message });
+        }
+        res.status(500).json({ error: 'Failed to like track', message: err.message });
+    }
 });
 
 // DELETE /api/library/like/:trackId
-router.delete('/like/:trackId', (req, res) => {
-    const db = req.app.locals.db;
-    const source = req.query.source || 'youtube';
-    const existing = getOne(db, 'SELECT id FROM liked_tracks WHERE user_id = ? AND track_id = ? AND track_source = ?',
-        [req.user.id, req.params.trackId, source]);
-    if (!existing) return res.status(404).json({ error: 'Track not found in likes' });
+router.delete('/like/:trackId', async (req, res) => {
+    try {
+        const db = req.app.locals.db;
+        const saveDb = req.app.locals.saveDb;
+        const source = req.query.source || 'youtube';
 
-    runSql(db, 'DELETE FROM liked_tracks WHERE user_id = ? AND track_id = ? AND track_source = ?',
-        [req.user.id, req.params.trackId, source]);
-    req.app.locals.saveDb();
-    res.json({ message: 'Track unliked', liked: false });
+        const result = await databaseAdapter.unlikeTrack(db, saveDb, req.user.id, req.params.trackId, source);
+        res.json({ message: 'Track unliked', liked: false, ...result });
+    } catch (err) {
+        if (err.code === 'DATABASE_UNAVAILABLE') {
+            return res.status(503).json({ error: 'Database unavailable', message: err.message });
+        }
+        res.status(500).json({ error: 'Failed to unlike track', message: err.message });
+    }
 });
 
 // GET /api/library/liked/check/:trackId
-router.get('/liked/check/:trackId', (req, res) => {
-    const db = req.app.locals.db;
-    const source = req.query.source || 'youtube';
-    const existing = getOne(db, 'SELECT id FROM liked_tracks WHERE user_id = ? AND track_id = ? AND (track_source = ? OR track_source = "audius")',
-        [req.user.id, req.params.trackId, source]);
-    res.json({ liked: !!existing });
+router.get('/liked/check/:trackId', async (req, res) => {
+    try {
+        const db = req.app.locals.db;
+        const source = req.query.source || 'youtube';
+        const liked = await databaseAdapter.checkLiked(db, req.user.id, req.params.trackId, source);
+        res.json({ liked: Boolean(liked) });
+    } catch (err) {
+        if (err.code === 'DATABASE_UNAVAILABLE') {
+            return res.status(503).json({ error: 'Database unavailable', message: err.message });
+        }
+        res.status(500).json({ error: 'Failed to check liked status', message: err.message });
+    }
 });
 
 // GET /api/library/history
-router.get('/history', (req, res) => {
-    const db = req.app.locals.db;
-    const { limit = 30 } = req.query;
-    const tracks = getAll(db, 'SELECT * FROM play_history WHERE user_id = ? ORDER BY played_at DESC LIMIT ?',
-        [req.user.id, parseInt(limit)]);
-    const parsed = tracks.map(t => ({ ...t, track_data: JSON.parse(t.track_data_json) }));
-    res.json({ tracks: parsed });
+router.get('/history', async (req, res) => {
+    try {
+        const db = req.app.locals.db;
+        const { limit = 30 } = req.query;
+        const tracks = await databaseAdapter.getPlayHistory(db, req.user.id, limit);
+        const parsed = tracks.map(t => ({
+            ...t,
+            track_data: typeof t.track_data === 'object' ? t.track_data : JSON.parse(t.track_data_json || '{}')
+        }));
+        res.json({ tracks: parsed, backend: databaseAdapter.getBackend() });
+    } catch (err) {
+        if (err.code === 'DATABASE_UNAVAILABLE') {
+            return res.status(503).json({ error: 'Database unavailable', message: err.message });
+        }
+        res.status(500).json({ error: 'Failed to fetch history', message: err.message });
+    }
 });
 
 // POST /api/library/history
-router.post('/history', (req, res) => {
-    const db = req.app.locals.db;
-    const { track_id, track_source, track_data } = req.body;
-    if (!track_id || !track_source || !track_data) return res.status(400).json({ error: 'track_id, track_source, and track_data are required' });
+router.post('/history', async (req, res) => {
+    try {
+        const db = req.app.locals.db;
+        const saveDb = req.app.locals.saveDb;
+        const { track_id, track_source, track_data } = req.body;
+        const idempotencyKey = req.headers['x-idempotency-key'] || req.body.idempotency_key || null;
 
-    const id = uuidv4();
-    runSql(db, 'INSERT INTO play_history (id, user_id, track_id, track_source, track_data_json) VALUES (?, ?, ?, ?, ?)',
-        [id, req.user.id, String(track_id), track_source, JSON.stringify(track_data)]);
-    req.app.locals.saveDb();
-    res.status(201).json({ message: 'Play logged' });
+        if (!track_id || !track_source || !track_data) {
+            return res.status(400).json({ error: 'track_id, track_source, and track_data are required' });
+        }
+
+        const result = await databaseAdapter.addPlayHistory(db, saveDb, req.user.id, track_id, track_source, track_data, idempotencyKey);
+        res.status(201).json({ message: 'Play logged', ...result });
+    } catch (err) {
+        if (err.code === 'DATABASE_UNAVAILABLE') {
+            return res.status(503).json({ error: 'Database unavailable', message: err.message });
+        }
+        res.status(500).json({ error: 'Failed to log play history', message: err.message });
+    }
 });
 
 module.exports = router;

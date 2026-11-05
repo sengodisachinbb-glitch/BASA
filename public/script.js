@@ -132,6 +132,12 @@ async function api(endpoint, options = {}) {
     return data;
 }
 
+// Stage 3B.1: Offline Client Mutation Outbox instance
+if (typeof window !== 'undefined' && typeof SyncOutbox !== 'undefined') {
+    window.basaSyncOutbox = new SyncOutbox();
+    window.basaSyncOutbox.init().catch(err => console.warn('[SyncOutbox] Init notice:', err.message));
+}
+
 // 3. TOAST NOTIFICATIONS
 let lastToastMsg = '';
 let lastToastTime = 0;
@@ -199,11 +205,22 @@ function setupRouter() {
         if (hash === '#home') {
             showView('view-home');
             loadHome();
+        } else if (hash === '#explore') {
+            showView('view-explore');
+            loadExploreTrending();
         } else if (hash === '#search') {
             showView('view-search');
         } else if (hash === '#library') {
             showView('view-library');
             loadLibrary();
+        } else if (hash === '#replay') {
+            showView('view-replay');
+            loadReplayView();
+        } else if (hash === '#equalizer') {
+            showView('view-equalizer');
+            initScreenEqualizer();
+        } else if (hash === '#sources') {
+            showView('view-sources');
         } else if (hash === '#uploads') {
             showView('view-uploads');
             loadUploads();
@@ -413,9 +430,9 @@ const DEFAULT_SPOTIFY_RECENT_SEARCHES = [
 function getRecentSearches() {
     try {
         const raw = localStorage.getItem(RECENT_SEARCHES_STORAGE_KEY);
-        if (raw) {
+        if (raw !== null) {
             const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            if (Array.isArray(parsed)) return parsed;
         }
         localStorage.setItem(RECENT_SEARCHES_STORAGE_KEY, JSON.stringify(DEFAULT_SPOTIFY_RECENT_SEARCHES));
         return DEFAULT_SPOTIFY_RECENT_SEARCHES;
@@ -609,27 +626,10 @@ async function fetchSearchSuggestions(query) {
     }
 }
 
-function renderSuggestionsDropdown(tracks, query) {
-    const dropdown = document.getElementById('search-suggestions-dropdown');
-    if (!dropdown) return;
-
-    if (!tracks || tracks.length === 0) {
-        dropdown.innerHTML = `
-            <div class="sp-sugg-header">
-                <span class="sp-sugg-title">Suggestions</span>
-            </div>
-            <div class="sp-sugg-empty">
-                <div class="sp-sugg-empty-title">No direct suggestions for "${escapeHtml(query)}"</div>
-                <div class="sp-sugg-tip">Press Enter to perform a deep multi-source search</div>
-            </div>
-        `;
-        currentSuggestionsList = [];
-        searchSuggestionsSelectedIndex = -1;
-        return;
-    }
-
+function formatSuggestions(tracks, query) {
+    if (!tracks || !Array.isArray(tracks)) return [];
     const suggestions = [];
-    const qLower = query.toLowerCase().trim();
+    const qLower = (query || '').toLowerCase().trim();
 
     // 1. Check if the query matches an artist in the results
     const artistCandidate = tracks.find(t => {
@@ -650,11 +650,11 @@ function renderSuggestionsDropdown(tracks, query) {
 
     // 2. Add top matching song entries
     tracks.slice(0, 6).forEach((t, i) => {
-        const cleaned = cleanMusicTitle(t.title, t.artist);
+        const cleaned = typeof cleanMusicTitle === 'function' ? cleanMusicTitle(t.title, t.artist) : { title: t.title, artist: t.artist, explicit: !!t.explicit };
         suggestions.push({
             id: t.id || t.videoId || ('sugg_' + i),
-            title: cleaned.title,
-            artist: cleaned.artist,
+            title: cleaned.title || t.title,
+            artist: cleaned.artist || t.artist,
             cover: t.thumbnail || t.cover || '/logo-mark.png',
             type: 'song',
             explicit: cleaned.explicit || !!t.explicit,
@@ -663,11 +663,11 @@ function renderSuggestionsDropdown(tracks, query) {
         });
 
         // 3. If an album is identified and distinct from song title, add Album entry
-        if (t.album && t.album.toLowerCase() !== cleaned.title.toLowerCase() && suggestions.filter(s => s.type === 'album').length === 0) {
+        if (t.album && t.album.toLowerCase() !== (cleaned.title || t.title).toLowerCase() && suggestions.filter(s => s.type === 'album').length === 0) {
             suggestions.push({
                 id: 'album_' + encodeURIComponent(t.album),
                 title: t.album,
-                artist: cleaned.artist,
+                artist: cleaned.artist || t.artist,
                 cover: t.thumbnail || t.cover || '/logo-mark.png',
                 type: 'album',
                 explicit: false
@@ -675,6 +675,29 @@ function renderSuggestionsDropdown(tracks, query) {
         }
     });
 
+    return suggestions;
+}
+
+function renderSuggestionsDropdown(tracks, query) {
+    const dropdown = document.getElementById('search-suggestions-dropdown');
+    if (!dropdown) return;
+
+    if (!tracks || tracks.length === 0) {
+        dropdown.innerHTML = `
+            <div class="sp-sugg-header">
+                <span class="sp-sugg-title">Suggestions</span>
+            </div>
+            <div class="sp-sugg-empty">
+                <div class="sp-sugg-empty-title">No direct suggestions for "${escapeHtml(query)}"</div>
+                <div class="sp-sugg-tip">Press Enter to perform a deep multi-source search</div>
+            </div>
+        `;
+        currentSuggestionsList = [];
+        searchSuggestionsSelectedIndex = -1;
+        return;
+    }
+
+    const suggestions = formatSuggestions(tracks, query);
     currentSuggestionsList = suggestions;
     searchSuggestionsSelectedIndex = -1;
 
@@ -1367,6 +1390,12 @@ function toggleNowPlayingSidecar(forcedState) {
     if (toggleBtn) {
         toggleBtn.classList.toggle('active', !willCollapse);
     }
+    if (!willCollapse) {
+        const npCanvas = document.getElementById('np-visualizer-canvas');
+        if (npCanvas && window.eqVisualizer && window.dspEngine && window.dspEngine.analyzer) {
+            window.eqVisualizer.startLiveVisualizer(npCanvas, window.dspEngine.analyzer);
+        }
+    }
     try {
         localStorage.setItem('basa_now_playing_sidecar', willCollapse ? '0' : '1');
     } catch (e) {}
@@ -1384,6 +1413,11 @@ function updateNowPlayingSidecar(trackData) {
     if (npTitle) npTitle.textContent = trackData.title || 'Not Playing';
     if (npArtist) npArtist.textContent = trackData.artist || '';
     if (npContext) npContext.textContent = trackData.title ? `Based on ${trackData.title}` : 'Now Playing';
+
+    const npCanvas = document.getElementById('np-visualizer-canvas');
+    if (npCanvas && window.eqVisualizer && window.dspEngine && window.dspEngine.analyzer) {
+        window.eqVisualizer.startLiveVisualizer(npCanvas, window.dspEngine.analyzer);
+    }
 
     if (npLikeBtn && trackData.id) {
         checkIfLiked(trackData.id, trackData.source).then(liked => {
@@ -1833,7 +1867,7 @@ function renderTrackCard(track, source = 'youtube', index = -1, contextType = ''
         </div>
         <div class="track-card-info">
             <div class="track-card-title">${escapeHtml(trackObj.title)}</div>
-            <div class="track-card-artist">${escapeHtml(trackObj.artist)}</div>
+            <div class="track-card-artist" style="cursor:pointer;" onclick="event.stopPropagation();openArtistModal('${escapeHtml(trackObj.artist)}', '${trackObj.cover || ''}')">${escapeHtml(trackObj.artist)}</div>
             ${versionBadgeHtml}
             ${renderQualityBadge(trackObj)}
         </div>
@@ -1996,7 +2030,7 @@ function renderTrackListItem(track, index, source, options = {}) {
         <div class="track-list-info">
             <span class="track-list-title">${escapeHtml(trackObj.title)}</span>
             <div class="track-list-artist-row">
-                <span class="track-list-artist">${escapeHtml(trackObj.artist)}</span>
+                <span class="track-list-artist" style="cursor:pointer;" onclick="event.stopPropagation();openArtistModal('${escapeHtml(trackObj.artist)}', '${trackObj.cover || ''}')">${escapeHtml(trackObj.artist)}</span>
                 ${renderQualityBadge(trackObj)}
                 ${sourcesChipsHtml}
             </div>
@@ -3815,6 +3849,29 @@ async function toggleLike(trackId, source, encodedData) {
     const trackData = JSON.parse(decodeURIComponent(encodedData));
     const isLiked = state.likedTrackIds.has(String(trackId));
 
+    // Offline optimistic queueing if client is disconnected
+    if (typeof navigator !== 'undefined' && !navigator.onLine && window.basaSyncOutbox) {
+        try {
+            await window.basaSyncOutbox.queueMutation(isLiked ? 'UNLIKE_TRACK' : 'LIKE_TRACK', {
+                track_id: String(trackId),
+                track_source: source,
+                track_data: trackData
+            });
+            if (isLiked) {
+                state.likedTrackIds.delete(String(trackId));
+                showToast('Removed from likes (offline queued 📶)');
+            } else {
+                state.likedTrackIds.add(String(trackId));
+                showToast('Added to likes (offline queued 📶)', 'success');
+            }
+            updatePlayerLikeButton();
+            if (state.currentView === 'library') loadLibrary();
+            return;
+        } catch (queueErr) {
+            console.warn('[SyncOutbox] Failed to queue offline mutation:', queueErr);
+        }
+    }
+
     try {
         if (isLiked) {
             await api(`/library/like/${trackId}?source=${source}`, { method: 'DELETE' });
@@ -3847,6 +3904,18 @@ async function toggleLike(trackId, source, encodedData) {
         // Refresh library view if active
         if (state.currentView === 'library') loadLibrary();
     } catch (err) {
+        // Fallback to outbox on transient network errors
+        if ((err.message.includes('fetch') || err.message.includes('network') || err.message.includes('failed')) && window.basaSyncOutbox) {
+            try {
+                await window.basaSyncOutbox.queueMutation(isLiked ? 'UNLIKE_TRACK' : 'LIKE_TRACK', {
+                    track_id: String(trackId),
+                    track_source: source,
+                    track_data: trackData
+                });
+                showToast('Network error: Queued change to sync later 📶', 'info');
+                return;
+            } catch (queueErr) {}
+        }
         showToast(err.message, 'error');
     }
 }
@@ -4415,53 +4484,75 @@ function setupFullScreenPlayer() {
     // Default to artwork centered mode initially
     setFsPlayerMode('artwork');
 
-    if (trackInfoBtn && fsPlayer) {
-        trackInfoBtn.addEventListener('click', () => {
-            if (!state.currentTrack) return;
-            fsPlayer.classList.remove('hidden');
-            fsPlayer.setAttribute('aria-hidden', 'false');
-            document.body.classList.add('fullscreen-player-open');
-            // Allow display change before opacity fade
-            setTimeout(() => fsPlayer.classList.add('active'), 10);
-            
-            // Re-extract color if cover was updated before it was open
-            const img = document.getElementById('fs-cover-image');
-            if (img && img.src) extractColorsFromImage(img);
+    window.openFullScreenPlayer = function() {
+        if (!state.currentTrack) return;
+        if (!fsPlayer) return;
+        fsPlayer.classList.remove('hidden');
+        fsPlayer.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('fullscreen-player-open');
+        // Allow display change before opacity fade
+        setTimeout(() => fsPlayer.classList.add('active'), 10);
+        
+        // Re-extract color if cover was updated before it was open
+        const img = document.getElementById('fs-cover-image');
+        if (img && img.src) extractColorsFromImage(img);
 
-            // Determine mode on open
-            if (isLyricsAvailable && userWantsLyrics) {
-                setFsPlayerMode('lyrics');
-            } else {
-                setFsPlayerMode('artwork');
-            }
+        // Determine mode on open
+        if (isLyricsAvailable && userWantsLyrics) {
+            setFsPlayerMode('lyrics');
+        } else {
+            setFsPlayerMode('artwork');
+        }
 
-            // Ensure lyrics are loaded
-            if (state.currentTrack && (!currentLyricsData || currentLyricsTrackId !== state.currentTrack.id)) {
-                loadLyricsForTrack(state.currentTrack);
-            } else if (currentLyricsData && currentLyricsData.synced && fsPlayerMode === 'lyrics') {
-                setTimeout(() => {
-                    const ct = window.playbackManager ? window.playbackManager.getCurrentTime() : 0;
-                    syncLyricsTick(ct, true);
-                }, 120);
-            }
+        // Ensure lyrics are loaded
+        if (state.currentTrack && (!currentLyricsData || currentLyricsTrackId !== state.currentTrack.id)) {
+            loadLyricsForTrack(state.currentTrack);
+        } else if (currentLyricsData && currentLyricsData.synced && fsPlayerMode === 'lyrics') {
+            setTimeout(() => {
+                const ct = window.playbackManager ? window.playbackManager.getCurrentTime() : 0;
+                syncLyricsTick(ct, true);
+            }, 120);
+        }
 
-            // Start live audio visualizer for Fullscreen Player
-            const visCanvas = document.getElementById('fs-visualizer-canvas');
-            if (visCanvas && window.eqVisualizer && window.dspEngine && window.dspEngine.analyzer) {
-                window.eqVisualizer.startLiveVisualizer(visCanvas, window.dspEngine.analyzer);
-            }
-        });
+        // Start live audio visualizer for Fullscreen Player
+        const visCanvas = document.getElementById('fs-visualizer-canvas');
+        if (visCanvas && window.eqVisualizer && window.dspEngine && window.dspEngine.analyzer) {
+            window.eqVisualizer.startLiveVisualizer(visCanvas, window.dspEngine.analyzer);
+        }
+    };
+
+    if (trackInfoBtn) {
+        trackInfoBtn.addEventListener('click', window.openFullScreenPlayer);
     }
 
-    // Toggle spectrum / waveform on visualizer canvas click
+    // Toggle 3D waveform / spectrum on visualizer canvas click
     const visCanvasEl = document.getElementById('fs-visualizer-canvas');
     if (visCanvasEl) {
         visCanvasEl.addEventListener('click', () => {
             if (window.eqVisualizer) {
                 const newMode = window.eqVisualizer.toggleMode();
-                showToast(`Visualizer mode: ${newMode}`, 'info');
+                const label = newMode === '3D_WAVEFORM' ? 'Smooth 3D Waveform' : 'Spectrum Analyzer';
+                showToast(`Visualizer mode: ${label}`, 'info');
             }
         });
+    }
+
+    const npCanvasEl = document.getElementById('np-visualizer-canvas');
+    if (npCanvasEl) {
+        npCanvasEl.addEventListener('click', () => {
+            if (window.eqVisualizer) {
+                const newMode = window.eqVisualizer.toggleMode();
+                const label = newMode === '3D_WAVEFORM' ? 'Smooth 3D Waveform' : 'Spectrum Analyzer';
+                showToast(`Visualizer mode: ${label}`, 'info');
+            }
+        });
+        // If sidecar is initially open, start visualizer
+        const sidecar = document.getElementById('now-playing-panel');
+        if (sidecar && !sidecar.classList.contains('collapsed')) {
+            if (window.eqVisualizer && window.dspEngine && window.dspEngine.analyzer) {
+                window.eqVisualizer.startLiveVisualizer(npCanvasEl, window.dspEngine.analyzer);
+            }
+        }
     }
 
     // Native Fullscreen toggle button (top right: ⤢)
@@ -6379,3 +6470,597 @@ window.renderPlayerQualityBadge = renderPlayerQualityBadge;
 window.handleQueueDragStart = handleQueueDragStart;
 window.handleQueueDragOver = handleQueueDragOver;
 window.handleQueueDrop = handleQueueDrop;
+
+// ==========================================
+// PWA INSTALLATION & SERVICE WORKER ENGINE
+// ==========================================
+let deferredInstallPrompt = null;
+
+// Register Service Worker for PWA installation
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').then((reg) => {
+            console.log('[PWA] Service Worker registered with scope:', reg.scope);
+        }).catch((err) => {
+            console.warn('[PWA] Service Worker registration notice:', err.message);
+        });
+    });
+}
+
+// Capture native install prompt
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    const btn = document.getElementById('pwa-install-btn');
+    if (btn) btn.classList.add('has-prompt');
+});
+
+window.addEventListener('appinstalled', () => {
+    console.log('[PWA] BASA application installed!');
+    showToast('🎉 BASA App installed successfully!', 'success');
+    deferredInstallPrompt = null;
+    const btn = document.getElementById('pwa-install-btn');
+    if (btn) btn.classList.remove('has-prompt');
+    closePwaInstallModal();
+});
+
+function handlePwaInstallClick() {
+    if (deferredInstallPrompt) {
+        triggerNativeInstallPrompt();
+    } else {
+        openPwaInstallModal();
+    }
+}
+
+async function triggerNativeInstallPrompt() {
+    if (deferredInstallPrompt) {
+        deferredInstallPrompt.prompt();
+        const { outcome } = await deferredInstallPrompt.userChoice;
+        if (outcome === 'accepted') {
+            showToast('🎉 Installing BASA App...', 'success');
+        }
+        deferredInstallPrompt = null;
+        closePwaInstallModal();
+    } else {
+        showToast('Tip: Use browser menu or address bar icon to install BASA', 'info');
+    }
+}
+
+function openPwaInstallModal() {
+    const modal = document.getElementById('pwa-install-modal');
+    if (modal) modal.classList.remove('hidden');
+}
+
+function closePwaInstallModal() {
+    const modal = document.getElementById('pwa-install-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+window.handlePwaInstallClick = handlePwaInstallClick;
+window.triggerNativeInstallPrompt = triggerNativeInstallPrompt;
+window.openPwaInstallModal = openPwaInstallModal;
+window.closePwaInstallModal = closePwaInstallModal;
+
+// ============================================
+// EXPLORE SCREEN SUBSYSTEM (ExploreScreen.kt)
+// ============================================
+
+async function exploreMoodStation(moodQuery) {
+    showToast(`Starting ${moodQuery} Station...`, 'info');
+    try {
+        const data = await api(`/music/search?q=${encodeURIComponent(moodQuery)}`);
+        const tracks = data.data || data.tracks || [];
+        if (tracks.length > 0) {
+            playFromList(tracks, 0, `${moodQuery} Station`);
+        } else {
+            showToast('No tracks found for this station', 'warning');
+        }
+    } catch (e) {
+        showToast('Failed to load station', 'error');
+    }
+}
+
+async function loadExploreTrending() {
+    const grid = document.getElementById('explore-trending-grid');
+    if (!grid) return;
+    grid.innerHTML = '<div class="grid-skeleton">Loading trending hits...</div>';
+
+    try {
+        const data = await api('/music/search?q=Trending Tamil Hits 2026');
+        const tracks = data.data || data.tracks || [];
+        if (tracks.length > 0) {
+            window.currentExploreTracks = tracks;
+            grid.innerHTML = tracks.slice(0, 12).map((t, idx) => 
+                renderTrackCard(t, t.source || 'youtube', idx, 'explore')
+            ).join('');
+        } else {
+            grid.innerHTML = '<div class="empty-state">No trending tracks available right now.</div>';
+        }
+    } catch (err) {
+        grid.innerHTML = '<div class="empty-state">Failed to load trending tracks</div>';
+    }
+}
+
+window.exploreMoodStation = exploreMoodStation;
+window.loadExploreTrending = loadExploreTrending;
+
+// ============================================
+// BASA REPLAY & ANALYTICS (ReplayScreen.kt)
+// ============================================
+
+function loadReplayView() {
+    let historyItems = [];
+    if (window.playerQueueStore && window.playerQueueStore.state && window.playerQueueStore.state.history) {
+        historyItems = window.playerQueueStore.state.history.map(it => it.song || it);
+    }
+    
+    // Supplement from localStorage
+    try {
+        const localRecents = JSON.parse(localStorage.getItem('basa_recent_searches') || '[]');
+        if (Array.isArray(localRecents)) {
+            historyItems = [...historyItems, ...localRecents.map(r => r.rawTrack || r)];
+        }
+    } catch (e) {}
+
+    // Deduplicate and count occurrences
+    const songCountMap = new Map();
+    const artistCountMap = new Map();
+
+    for (const item of historyItems) {
+        if (!item) continue;
+        const songKey = `${item.title || item.name || 'Unknown'} - ${item.artist || 'Unknown'}`;
+        const artistKey = item.artist || 'Unknown Artist';
+
+        songCountMap.set(songKey, (songCountMap.get(songKey) || 0) + 1);
+        if (artistKey && artistKey !== 'Unknown Artist') {
+            artistCountMap.set(artistKey, (artistCountMap.get(artistKey) || 0) + 1);
+        }
+    }
+
+    const totalPlays = Math.max(historyItems.length, songCountMap.size, 1);
+    const estimatedMinutes = Math.round(totalPlays * 3.4);
+
+    const minutesEl = document.getElementById('replay-stat-minutes');
+    const songsEl = document.getElementById('replay-stat-songs');
+    const artistEl = document.getElementById('replay-stat-artist');
+    const genreEl = document.getElementById('replay-stat-genre');
+
+    if (minutesEl) minutesEl.textContent = String(estimatedMinutes);
+    if (songsEl) songsEl.textContent = String(totalPlays);
+
+    // Top artist
+    let topArtistName = 'Anirudh Ravichander';
+    let topArtistPlays = 0;
+    for (const [art, count] of artistCountMap.entries()) {
+        if (count > topArtistPlays) {
+            topArtistPlays = count;
+            topArtistName = art;
+        }
+    }
+    if (artistEl) artistEl.textContent = topArtistName;
+    if (genreEl) genreEl.textContent = 'Tamil Melody / EDM';
+
+    // Render Top Tracks
+    const topTracksList = document.getElementById('replay-top-tracks-list');
+    if (topTracksList) {
+        const sortedSongs = Array.from(songCountMap.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5);
+
+        if (sortedSongs.length > 0) {
+            topTracksList.innerHTML = sortedSongs.map(([titleArt, count], idx) => {
+                const parts = titleArt.split(' - ');
+                const title = parts[0];
+                const artist = parts[1] || 'Unknown';
+                return `
+                    <div class="track-item" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-radius: 10px; margin-bottom: 6px; background: rgba(255,255,255,0.03);">
+                        <div style="display: flex; align-items: center; gap: 14px;">
+                            <span style="font-size: 16px; font-weight: 800; color: ${idx === 0 ? '#fbbf24' : idx === 1 ? '#94a3b8' : idx === 2 ? '#b45309' : '#64748b'}; width: 20px;">#${idx + 1}</span>
+                            <div>
+                                <div style="font-weight: 600; font-size: 14px; color: #fff;">${escapeHtml(title)}</div>
+                                <div style="font-size: 12px; color: var(--text-secondary);">${escapeHtml(artist)}</div>
+                            </div>
+                        </div>
+                        <span class="taste-badge" style="font-size: 11px;">${count} play${count > 1 ? 's' : ''}</span>
+                    </div>
+                `;
+            }).join('');
+        } else {
+            topTracksList.innerHTML = '<div style="color: var(--text-secondary); font-size: 13px; padding: 12px 0;">Play more songs to build your personalized Replay ranking!</div>';
+        }
+    }
+
+    // Render Top Artists
+    const topArtistsList = document.getElementById('replay-top-artists-list');
+    if (topArtistsList) {
+        const sortedArtists = Array.from(artistCountMap.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 4);
+
+        if (sortedArtists.length > 0) {
+            topArtistsList.innerHTML = sortedArtists.map(([art, count], idx) => {
+                const pct = Math.min(100, Math.round((count / totalPlays) * 100));
+                return `
+                    <div style="padding: 12px 14px; border-radius: 10px; background: rgba(255,255,255,0.03);">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 13px;">
+                            <strong style="color: #fff; cursor: pointer;" onclick="openArtistModal('${escapeHtml(art)}')">${escapeHtml(art)}</strong>
+                            <span style="color: var(--text-secondary);">${count} stream${count > 1 ? 's' : ''}</span>
+                        </div>
+                        <div style="width: 100%; height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
+                            <div style="width: ${Math.max(15, pct)}%; height: 100%; background: linear-gradient(90deg, #ec4899, #8b5cf6); border-radius: 3px;"></div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        } else {
+            topArtistsList.innerHTML = '<div style="color: var(--text-secondary); font-size: 13px; padding: 12px 0;">Artists will automatically populate as you listen.</div>';
+        }
+    }
+}
+
+function generateReplayPoster() {
+    const container = document.getElementById('replay-poster-container');
+    const canvas = document.getElementById('replay-canvas');
+    if (!container || !canvas) return;
+
+    container.style.display = 'block';
+    container.scrollIntoView({ behavior: 'smooth' });
+
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+
+    // Background gradient
+    const bgGrad = ctx.createLinearGradient(0, 0, w, h);
+    bgGrad.addColorStop(0, '#0a0d1a');
+    bgGrad.addColorStop(0.5, '#1e1b4b');
+    bgGrad.addColorStop(1, '#09090b');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, w, h);
+
+    // Glowing Neon Orbs
+    ctx.save();
+    const orbGrad1 = ctx.createRadialGradient(150, 180, 20, 150, 180, 250);
+    orbGrad1.addColorStop(0, 'rgba(168, 85, 247, 0.4)');
+    orbGrad1.addColorStop(1, 'rgba(168, 85, 247, 0)');
+    ctx.fillStyle = orbGrad1;
+    ctx.beginPath();
+    ctx.arc(150, 180, 250, 0, Math.PI * 2);
+    ctx.fill();
+
+    const orbGrad2 = ctx.createRadialGradient(450, 650, 20, 450, 650, 280);
+    orbGrad2.addColorStop(0, 'rgba(56, 189, 248, 0.35)');
+    orbGrad2.addColorStop(1, 'rgba(56, 189, 248, 0)');
+    ctx.fillStyle = orbGrad2;
+    ctx.beginPath();
+    ctx.arc(450, 650, 280, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Card border
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(16, 16, w - 32, h - 32);
+
+    // Header branding
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '800 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillText('BASA 2.0', 48, 70);
+
+    ctx.fillStyle = '#c084fc';
+    ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillText('SOUND REPLAY · 2026 CAPSULE', 48, 92);
+
+    // Title
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '800 36px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillText('Your Year in Music', 48, 160);
+
+    // Listening stats card
+    const minVal = document.getElementById('replay-stat-minutes')?.textContent || '1,420';
+    const topArtVal = document.getElementById('replay-stat-artist')?.textContent || 'Anirudh Ravichander';
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+    ctx.roundRect ? ctx.roundRect(48, 195, w - 96, 120, 16) : ctx.fillRect(48, 195, w - 96, 120);
+    ctx.fill();
+
+    ctx.fillStyle = '#4ade80';
+    ctx.font = '800 48px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillText(minVal, 72, 260);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.font = '600 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillText('TOTAL MINUTES STREAMED IN HI-RES', 72, 290);
+
+    // Top Songs List
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '700 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillText('🏆 Top Tracks', 48, 365);
+
+    const trackItems = document.querySelectorAll('#replay-top-tracks-list .track-item');
+    let startY = 405;
+    if (trackItems.length > 0) {
+        trackItems.forEach((item, idx) => {
+            if (idx >= 5) return;
+            const title = item.querySelector('div div:first-child')?.textContent || `Track ${idx + 1}`;
+            const artist = item.querySelector('div div:last-child')?.textContent || 'Artist';
+
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+            ctx.roundRect ? ctx.roundRect(48, startY - 24, w - 96, 48, 10) : ctx.fillRect(48, startY - 24, w - 96, 48);
+            ctx.fill();
+
+            ctx.fillStyle = idx === 0 ? '#fbbf24' : '#38bdf8';
+            ctx.font = '800 16px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            ctx.fillText(`#${idx + 1}`, 64, startY + 6);
+
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '600 15px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            ctx.fillText(title.substring(0, 28), 105, startY + 5);
+
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.font = '500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            ctx.fillText(artist.substring(0, 20), 400, startY + 5);
+
+            startY += 58;
+        });
+    } else {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+        ctx.font = '500 15px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        ctx.fillText('Streaming active — generating chart...', 48, 410);
+        startY = 460;
+    }
+
+    // Top Artist Badge
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+    ctx.roundRect ? ctx.roundRect(48, startY + 20, w - 96, 90, 16) : ctx.fillRect(48, startY + 20, w - 96, 90);
+    ctx.fill();
+
+    ctx.fillStyle = '#f472b6';
+    ctx.font = '700 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillText('MOST FREQUENTED ARTIST', 72, startY + 52);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '800 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillText(topArtistVal, 72, startY + 84);
+
+    // Footer Watermark
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.font = '500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillText('Verified Bit-Perfect Studio Playback · https://basa.app', 48, h - 45);
+}
+
+function downloadReplayPoster() {
+    const canvas = document.getElementById('replay-canvas');
+    if (!canvas) return;
+    const link = document.createElement('a');
+    link.download = 'basa-replay-2026.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    showToast('Downloaded BASA Replay Poster!', 'success');
+}
+
+function shareReplayPoster() {
+    if (navigator.share) {
+        navigator.share({
+            title: 'My BASA 2.0 Replay',
+            text: 'Check out my 2026 music listening replay on BASA!',
+            url: window.location.href
+        }).catch(() => {});
+    } else {
+        downloadReplayPoster();
+    }
+}
+
+window.loadReplayView = loadReplayView;
+window.generateReplayPoster = generateReplayPoster;
+window.downloadReplayPoster = downloadReplayPoster;
+window.shareReplayPoster = shareReplayPoster;
+
+// ============================================
+// EQUALIZER SCREEN SUBSYSTEM (EqualizerScreen.kt)
+// ============================================
+
+function initScreenEqualizer() {
+    // Sync slider positions with window.dspEngine
+    if (window.dspEngine && window.dspEngine.equalizer) {
+        const bands = window.dspEngine.equalizer.bands || [];
+        bands.forEach((b, idx) => {
+            const slider = document.getElementById(`eq-screen-band-${idx}`);
+            const readout = document.getElementById(`eq-screen-val-${idx}`);
+            if (slider && b.node) {
+                slider.value = b.node.gain.value;
+                if (readout) readout.textContent = `${b.node.gain.value > 0 ? '+' : ''}${b.node.gain.value.toFixed(1)} dB`;
+            }
+        });
+    }
+    syncScreenEqCurve();
+}
+
+function syncScreenEqCurve() {
+    const canvas = document.getElementById('eq-screen-curve-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+
+    ctx.clearRect(0, 0, w, h);
+
+    // Draw 0 dB center reference line
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(0, h / 2);
+    ctx.lineTo(w, h / 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Sample band values
+    const points = [];
+    const bandsCount = 10;
+    for (let i = 0; i < bandsCount; i++) {
+        const slider = document.getElementById(`eq-screen-band-${i}`);
+        const gain = slider ? parseFloat(slider.value) : 0;
+        const x = (i / (bandsCount - 1)) * (w - 60) + 30;
+        // Map [-12 dB, +12 dB] to [h - 10, 10]
+        const y = h / 2 - (gain / 12) * (h / 2 - 15);
+        points.push({ x, y });
+
+        const readout = document.getElementById(`eq-screen-val-${i}`);
+        if (readout) readout.textContent = `${gain > 0 ? '+' : ''}${gain.toFixed(1)} dB`;
+    }
+
+    // Draw Smooth Frequency Curve
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 0; i < points.length - 1; i++) {
+        const xc = (points[i].x + points[i + 1].x) / 2;
+        const yc = (points[i].y + points[i + 1].y) / 2;
+        ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+    }
+    ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+    ctx.stroke();
+
+    // Area Fill
+    ctx.lineTo(points[points.length - 1].x, h / 2);
+    ctx.lineTo(points[0].x, h / 2);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.15)';
+    ctx.fill();
+
+    // Draw Control Points
+    points.forEach(p => {
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+    });
+}
+
+window.initScreenEqualizer = initScreenEqualizer;
+window.syncScreenEqCurve = syncScreenEqCurve;
+
+// ============================================
+// ARTIST & ALBUM MODAL SUBSYSTEM (Artist/AlbumScreen.kt)
+// ============================================
+
+async function openArtistModal(artistName, artistImg = null) {
+    if (!artistName) return;
+    const modal = document.getElementById('artist-modal');
+    const nameEl = document.getElementById('artist-modal-name');
+    const imgEl = document.getElementById('artist-modal-img');
+    const tracksContainer = document.getElementById('artist-modal-tracks');
+    const playRadioBtn = document.getElementById('artist-modal-play-radio-btn');
+
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    modal.style.display = 'grid';
+
+    if (nameEl) nameEl.textContent = artistName;
+    if (imgEl) imgEl.src = artistImg || '/logo-mark.png';
+    if (tracksContainer) tracksContainer.innerHTML = '<div class="loader">Loading artist discography...</div>';
+
+    if (playRadioBtn) {
+        playRadioBtn.onclick = () => {
+            closeArtistModal();
+            exploreMoodStation(`${artistName} Hits`);
+        };
+    }
+
+    try {
+        const data = await api(`/music/search?q=${encodeURIComponent(artistName)}`);
+        const tracks = data.data || data.tracks || [];
+        if (tracks.length > 0) {
+            tracksContainer.innerHTML = tracks.slice(0, 15).map((t, idx) =>
+                renderTrackListItem(t, idx, t.source || 'youtube', { contextType: 'artist', contextName: artistName })
+            ).join('');
+        } else {
+            tracksContainer.innerHTML = '<div class="empty-state">No tracks found for this artist.</div>';
+        }
+    } catch (e) {
+        if (tracksContainer) tracksContainer.innerHTML = '<div class="empty-state">Failed to load tracks.</div>';
+    }
+}
+
+function closeArtistModal() {
+    const modal = document.getElementById('artist-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.style.display = 'none';
+    }
+}
+
+async function openAlbumModal(albumTitle, artistName = '', albumImg = null) {
+    if (!albumTitle) return;
+    const modal = document.getElementById('album-modal');
+    const titleEl = document.getElementById('album-modal-title');
+    const artistEl = document.getElementById('album-modal-artist');
+    const imgEl = document.getElementById('album-modal-img');
+    const tracksContainer = document.getElementById('album-modal-tracks');
+    const playAllBtn = document.getElementById('album-modal-play-btn');
+    const queueBtn = document.getElementById('album-modal-queue-btn');
+
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    modal.style.display = 'grid';
+
+    if (titleEl) titleEl.textContent = albumTitle;
+    if (artistEl) artistEl.textContent = artistName || 'Original Soundtrack';
+    if (imgEl) imgEl.src = albumImg || '/logo-mark.png';
+    if (tracksContainer) tracksContainer.innerHTML = '<div class="loader">Loading album tracks...</div>';
+
+    try {
+        const query = `${albumTitle} ${artistName || ''}`.trim();
+        const data = await api(`/music/search?q=${encodeURIComponent(query)}`);
+        const tracks = data.data || data.tracks || [];
+
+        if (playAllBtn) {
+            playAllBtn.onclick = () => {
+                closeAlbumModal();
+                if (tracks.length > 0) playFromList(tracks, 0, albumTitle);
+            };
+        }
+
+        if (queueBtn) {
+            queueBtn.onclick = () => {
+                tracks.forEach(t => addToQueue(t));
+                showToast(`Added ${tracks.length} tracks to Queue`, 'success');
+            };
+        }
+
+        if (tracks.length > 0) {
+            tracksContainer.innerHTML = tracks.map((t, idx) =>
+                renderTrackListItem(t, idx, t.source || 'youtube', { contextType: 'album', contextName: albumTitle })
+            ).join('');
+        } else {
+            tracksContainer.innerHTML = '<div class="empty-state">No album songs found.</div>';
+        }
+    } catch (e) {
+        if (tracksContainer) tracksContainer.innerHTML = '<div class="empty-state">Failed to load album songs.</div>';
+    }
+}
+
+function closeAlbumModal() {
+    const modal = document.getElementById('album-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.style.display = 'none';
+    }
+}
+
+window.openArtistModal = openArtistModal;
+window.closeArtistModal = closeArtistModal;
+window.openAlbumModal = openAlbumModal;
+window.closeAlbumModal = closeAlbumModal;
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        getRecentSearches,
+        saveRecentSearch,
+        removeRecentSearch,
+        clearAllRecentSearches,
+        formatSuggestions
+    };
+}

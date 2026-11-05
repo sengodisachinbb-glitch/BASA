@@ -6,6 +6,11 @@
     <title>BASA — Premium Music Streaming</title>
     <link rel="icon" type="image/png" href="/favicon.png">
     <link rel="apple-touch-icon" href="/logo-mark.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#0b0f19">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="BASA">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -38,6 +43,15 @@
                         <kbd class="sp-search-kbd">L</kbd>
                     </div>
                     <div class="sp-search-divider"></div>
+                    <button type="button" id="pwa-install-btn" class="pwa-install-btn" title="Install BASA App (Download to Desktop / Phone)" onclick="handlePwaInstallClick()" aria-label="Install App">
+                        <svg class="pwa-install-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                            <line x1="8" y1="21" x2="16" y2="21"></line>
+                            <line x1="12" y1="17" x2="12" y2="21"></line>
+                            <polyline points="9 10 12 13 15 10"></polyline>
+                            <line x1="12" y1="6" x2="12" y2="13"></line>
+                        </svg>
+                    </button>
                     <button type="button" id="sp-browse-btn" class="sp-search-browse-btn" title="Browse / Categories" onclick="navigate('#search')">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect></svg>
                     </button>
@@ -79,6 +93,10 @@
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>
                         Home
                     </a>
+                    <a href="#explore" class="sidebar-link" data-view="explore">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+                        Explore
+                    </a>
                     <a href="#search" class="sidebar-link" data-view="search">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                         Search
@@ -86,6 +104,14 @@
                     <a href="#library" class="sidebar-link" data-view="library">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
                         Library
+                    </a>
+                    <a href="#replay" class="sidebar-link" data-view="replay">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20v-6M6 20V10M18 20V4"/></svg>
+                        BASA Replay
+                    </a>
+                    <a href="#equalizer" class="sidebar-link" data-view="equalizer">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+                        Equalizer
                     </a>
                     <a href="#uploads" class="sidebar-link" data-view="uploads">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -98,6 +124,10 @@
                     <a href="#lossless" class="sidebar-link" data-view="lossless" id="nav-lossless-btn">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
                         Lossless Studio
+                    </a>
+                    <a href="#sources" class="sidebar-link" data-view="sources">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                        Music Sources
                     </a>
                 </nav>
                 <div class="sidebar-divider"></div>
@@ -412,6 +442,317 @@
                     </div>
                 </div>
 
+                <!-- EXPLORE / DISCOVER VIEW -->
+                <div id="view-explore" class="view">
+                    <div class="explore-hero-banner" style="background: linear-gradient(135deg, rgba(74, 222, 128, 0.15) 0%, rgba(56, 189, 248, 0.15) 100%); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 28px; margin-bottom: 28px; position: relative; overflow: hidden;">
+                        <div style="max-width: 650px; position: relative; z-index: 2;">
+                            <span class="taste-badge" style="background: rgba(74,222,128,0.2); color: #4ade80; border-color: rgba(74,222,128,0.4); margin-bottom: 10px; display: inline-block;">✨ Curated Discovery</span>
+                            <h1 style="font-size: 28px; font-weight: 800; margin: 8px 0 10px; letter-spacing: -0.02em;">Explore Sounds, Moods &amp; Horizons</h1>
+                            <p style="color: var(--text-secondary); font-size: 14px; line-height: 1.5; margin-bottom: 16px;">
+                                Explore trending charts, viral club hits, soothing midnight acoustics, and genre stations curated by BASA AI.
+                            </p>
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                <button class="button button-primary" onclick="exploreMoodStation('Tamil Hits')">▶ Play Trending Radio</button>
+                                <button class="button button-secondary" onclick="exploreMoodStation('Chill Lofi')">☕ Chill Vibe</button>
+                                <button class="button button-secondary" onclick="exploreMoodStation('Workout Energy')">⚡ High Energy</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Moods & Genres Grid -->
+                    <section class="content-section">
+                        <div class="section-header-flex">
+                            <h2 class="section-title">🎨 Moods &amp; Genres</h2>
+                            <span style="font-size: 12px; color: var(--text-secondary);">Select a vibe to start station</span>
+                        </div>
+                        <div class="explore-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; margin-top: 14px;">
+                            <div class="genre-card" onclick="exploreMoodStation('Tamil Melody')" style="background: linear-gradient(135deg, #1e3a8a, #3b82f6); border-radius: 14px; padding: 20px; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; position: relative; min-height: 110px; overflow: hidden;">
+                                <h3 style="font-size: 17px; font-weight: 700; color: #fff;">Tamil Melodies</h3>
+                                <p style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px;">Evergreen soulful tunes</p>
+                                <span style="position: absolute; right: 12px; bottom: 8px; font-size: 28px; opacity: 0.85;">🎶</span>
+                            </div>
+                            <div class="genre-card" onclick="exploreMoodStation('Kuthu Party')" style="background: linear-gradient(135deg, #991b1b, #ef4444); border-radius: 14px; padding: 20px; cursor: pointer; transition: transform 0.2s; position: relative; min-height: 110px; overflow: hidden;">
+                                <h3 style="font-size: 17px; font-weight: 700; color: #fff;">Fast &amp; Kuthu</h3>
+                                <p style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px;">Bass-heavy celebration</p>
+                                <span style="position: absolute; right: 12px; bottom: 8px; font-size: 28px; opacity: 0.85;">🔥</span>
+                            </div>
+                            <div class="genre-card" onclick="exploreMoodStation('Romantic Love')" style="background: linear-gradient(135deg, #831843, #ec4899); border-radius: 14px; padding: 20px; cursor: pointer; transition: transform 0.2s; position: relative; min-height: 110px; overflow: hidden;">
+                                <h3 style="font-size: 17px; font-weight: 700; color: #fff;">Romantic Love</h3>
+                                <p style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px;">Sweet melodies &amp; lyrics</p>
+                                <span style="position: absolute; right: 12px; bottom: 8px; font-size: 28px; opacity: 0.85;">💖</span>
+                            </div>
+                            <div class="genre-card" onclick="exploreMoodStation('Chill Lofi Study')" style="background: linear-gradient(135deg, #134e4a, #14b8a6); border-radius: 14px; padding: 20px; cursor: pointer; transition: transform 0.2s; position: relative; min-height: 110px; overflow: hidden;">
+                                <h3 style="font-size: 17px; font-weight: 700; color: #fff;">Lo-Fi &amp; Focus</h3>
+                                <p style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px;">Deep work &amp; calm</p>
+                                <span style="position: absolute; right: 12px; bottom: 8px; font-size: 28px; opacity: 0.85;">☕</span>
+                            </div>
+                            <div class="genre-card" onclick="exploreMoodStation('Workout Gym Energy')" style="background: linear-gradient(135deg, #7c2d12, #f97316); border-radius: 14px; padding: 20px; cursor: pointer; transition: transform 0.2s; position: relative; min-height: 110px; overflow: hidden;">
+                                <h3 style="font-size: 17px; font-weight: 700; color: #fff;">Workout Pump</h3>
+                                <p style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px;">High-BPM adrenaline</p>
+                                <span style="position: absolute; right: 12px; bottom: 8px; font-size: 28px; opacity: 0.85;">⚡</span>
+                            </div>
+                            <div class="genre-card" onclick="exploreMoodStation('90s Evergreen Tamil')" style="background: linear-gradient(135deg, #581c87, #a855f7); border-radius: 14px; padding: 20px; cursor: pointer; transition: transform 0.2s; position: relative; min-height: 110px; overflow: hidden;">
+                                <h3 style="font-size: 17px; font-weight: 700; color: #fff;">90s Nostalgia</h3>
+                                <p style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px;">Golden classics &amp; retro</p>
+                                <span style="position: absolute; right: 12px; bottom: 8px; font-size: 28px; opacity: 0.85;">📻</span>
+                            </div>
+                            <div class="genre-card" onclick="exploreMoodStation('Devotional Peace')" style="background: linear-gradient(135deg, #713f12, #eab308); border-radius: 14px; padding: 20px; cursor: pointer; transition: transform 0.2s; position: relative; min-height: 110px; overflow: hidden;">
+                                <h3 style="font-size: 17px; font-weight: 700; color: #fff;">Spiritual &amp; Peace</h3>
+                                <p style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px;">Inner harmony chants</p>
+                                <span style="position: absolute; right: 12px; bottom: 8px; font-size: 28px; opacity: 0.85;">🕉️</span>
+                            </div>
+                            <div class="genre-card" onclick="exploreMoodStation('Indie Acoustic')" style="background: linear-gradient(135deg, #14532d, #22c55e); border-radius: 14px; padding: 20px; cursor: pointer; transition: transform 0.2s; position: relative; min-height: 110px; overflow: hidden;">
+                                <h3 style="font-size: 17px; font-weight: 700; color: #fff;">Indie &amp; Acoustic</h3>
+                                <p style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px;">Guitar, raw vocals</p>
+                                <span style="position: absolute; right: 12px; bottom: 8px; font-size: 28px; opacity: 0.85;">🎸</span>
+                            </div>
+                            <div class="genre-card" onclick="exploreMoodStation('Hip Hop Rap')" style="background: linear-gradient(135deg, #0f172a, #475569); border-radius: 14px; padding: 20px; cursor: pointer; transition: transform 0.2s; position: relative; min-height: 110px; overflow: hidden;">
+                                <h3 style="font-size: 17px; font-weight: 700; color: #fff;">Hip-Hop &amp; Bars</h3>
+                                <p style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px;">808 beats &amp; flows</p>
+                                <span style="position: absolute; right: 12px; bottom: 8px; font-size: 28px; opacity: 0.85;">🎤</span>
+                            </div>
+                            <div class="genre-card" onclick="exploreMoodStation('Late Night Drive Melancholy')" style="background: linear-gradient(135deg, #312e81, #6366f1); border-radius: 14px; padding: 20px; cursor: pointer; transition: transform 0.2s; position: relative; min-height: 110px; overflow: hidden;">
+                                <h3 style="font-size: 17px; font-weight: 700; color: #fff;">Night Drive</h3>
+                                <p style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px;">Synthwave &amp; midnight vibes</p>
+                                <span style="position: absolute; right: 12px; bottom: 8px; font-size: 28px; opacity: 0.85;">🚗</span>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Trending Charts & Curated Tracks -->
+                    <section class="content-section" style="margin-top: 32px;">
+                        <div class="section-header-flex">
+                            <div>
+                                <h2 class="section-title">📈 Trending Now</h2>
+                                <p class="section-subtitle">Most played tracks across the network</p>
+                            </div>
+                            <button class="button button-secondary" onclick="loadExploreTrending()">↻ Refresh</button>
+                        </div>
+                        <div id="explore-trending-grid" class="track-grid">
+                            <div class="grid-skeleton">Loading trending charts...</div>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- BASA REPLAY / STATS VIEW -->
+                <div id="view-replay" class="view">
+                    <div class="replay-header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
+                        <div>
+                            <span class="taste-badge" style="background: rgba(168,85,247,0.2); color: #c084fc; border-color: rgba(168,85,247,0.4); margin-bottom: 8px; display: inline-block;">✨ Sound Capsule</span>
+                            <h1 style="font-size: 28px; font-weight: 800; margin: 4px 0 6px; letter-spacing: -0.02em;">BASA Replay &amp; Analytics</h1>
+                            <p style="color: var(--text-secondary); font-size: 14px;">Your listening statistics, top songs, and shareable sound summary.</p>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="button button-primary" onclick="generateReplayPoster()">🎨 Generate Story Card</button>
+                            <button class="button button-secondary" onclick="loadReplayView()">↻ Refresh Stats</button>
+                        </div>
+                    </div>
+
+                    <!-- Metrics Stats Grid -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 28px;">
+                        <div class="glass-standard" style="padding: 20px; border-radius: 14px; text-align: center;">
+                            <span style="font-size: 28px; display: block; margin-bottom: 6px;">⏱️</span>
+                            <div id="replay-stat-minutes" style="font-size: 26px; font-weight: 800; color: #4ade80;">0</div>
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.05em;">Minutes Listened</div>
+                        </div>
+                        <div class="glass-standard" style="padding: 20px; border-radius: 14px; text-align: center;">
+                            <span style="font-size: 28px; display: block; margin-bottom: 6px;">🎵</span>
+                            <div id="replay-stat-songs" style="font-size: 26px; font-weight: 800; color: #38bdf8;">0</div>
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.05em;">Songs Played</div>
+                        </div>
+                        <div class="glass-standard" style="padding: 20px; border-radius: 14px; text-align: center;">
+                            <span style="font-size: 28px; display: block; margin-bottom: 6px;">👑</span>
+                            <div id="replay-stat-artist" style="font-size: 20px; font-weight: 800; color: #f472b6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">-</div>
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.05em;">Top Artist</div>
+                        </div>
+                        <div class="glass-standard" style="padding: 20px; border-radius: 14px; text-align: center;">
+                            <span style="font-size: 28px; display: block; margin-bottom: 6px;">🎧</span>
+                            <div id="replay-stat-genre" style="font-size: 20px; font-weight: 800; color: #fbbf24;">Melody</div>
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.05em;">Dominant Vibe</div>
+                        </div>
+                    </div>
+
+                    <!-- Top Songs & Top Artists Columns -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px;">
+                        <div class="glass-standard" style="padding: 20px; border-radius: 16px;">
+                            <h3 style="font-size: 18px; font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 8px;">
+                                🏆 Top Tracks
+                            </h3>
+                            <div id="replay-top-tracks-list" class="track-list" style="display: block;">
+                                <div style="color: var(--text-secondary); font-size: 13px; padding: 12px 0;">Play songs to generate your Replay rankings!</div>
+                            </div>
+                        </div>
+
+                        <div class="glass-standard" style="padding: 20px; border-radius: 16px;">
+                            <h3 style="font-size: 18px; font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 8px;">
+                                🎤 Top Artists
+                            </h3>
+                            <div id="replay-top-artists-list" style="display: flex; flex-direction: column; gap: 10px;">
+                                <div style="color: var(--text-secondary); font-size: 13px; padding: 12px 0;">Your most frequented artists will rank here.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Story Poster Canvas Preview Modal / Card -->
+                    <div id="replay-poster-container" class="glass-standard" style="margin-top: 28px; padding: 24px; border-radius: 16px; display: none;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <h3 style="font-size: 18px; font-weight: 700;">📸 Your BASA Replay Story Card</h3>
+                            <div style="display: flex; gap: 10px;">
+                                <button class="button button-primary" onclick="downloadReplayPoster()">⬇ Download Image</button>
+                                <button class="button button-secondary" onclick="shareReplayPoster()">🔗 Share</button>
+                                <button class="button button-secondary" onclick="document.getElementById('replay-poster-container').style.display='none'">✕ Close</button>
+                            </div>
+                        </div>
+                        <div style="display: flex; justify-content: center; background: rgba(0,0,0,0.4); padding: 20px; border-radius: 12px; overflow-x: auto;">
+                            <canvas id="replay-canvas" width="600" height="900" style="max-width: 100%; height: auto; border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.6);"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- EQUALIZER SCREEN VIEW -->
+                <div id="view-equalizer" class="view">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+                        <div>
+                            <span class="taste-badge" style="background: rgba(56,189,248,0.2); color: #38bdf8; border-color: rgba(56,189,248,0.4); margin-bottom: 6px; display: inline-block;">🎛️ Float32 Web Audio DSP</span>
+                            <h1 style="font-size: 26px; font-weight: 800; margin: 4px 0 6px; letter-spacing: -0.02em;">10-Band Graphic Equalizer</h1>
+                            <p style="color: var(--text-secondary); font-size: 13px;">Studio-grade biquad filtering with active response curve visualizer and True Peak limiter.</p>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button type="button" class="button button-secondary" onclick="resetEqualizerCurve()">Reset (Flat)</button>
+                            <button type="button" class="button button-primary" onclick="openPipelineInspectorModal()">⚡ Pipeline Inspector</button>
+                        </div>
+                    </div>
+
+                    <!-- Preset Selector Row -->
+                    <div class="glass-standard" style="padding: 16px 20px; border-radius: 14px; margin-bottom: 20px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+                        <label style="font-weight: 700; font-size: 13px; color: var(--text-primary); white-space: nowrap;">Acoustic Preset:</label>
+                        <select id="eq-screen-preset-select" class="form-input" style="max-width: 200px; padding: 6px 12px; font-size: 13px;" onchange="applyEqualizerPreset(this.value)">
+                            <option value="flat">Flat (Default)</option>
+                            <option value="bass_boost">Bass Boost (+4.5 dB)</option>
+                            <option value="treble_boost">Treble Boost (+4.0 dB)</option>
+                            <option value="vocal_clarity">Vocal Clarity</option>
+                            <option value="rock">Rock / Live Punch</option>
+                            <option value="electronic">Electronic / Dance</option>
+                            <option value="pop">Pop / Dynamic</option>
+                            <option value="jazz">Jazz / Warm Acoustic</option>
+                            <option value="classical">Classical / Symphonic</option>
+                            <option value="rnb">R&amp;B / Deep Lows</option>
+                            <option value="spoken_word">Spoken Word / Podcast</option>
+                            <option value="nightcore">Nightcore / Highs</option>
+                        </select>
+                        <div style="display: flex; gap: 8px; align-items: center; margin-left: auto;">
+                            <span style="font-size: 12px; color: var(--text-secondary);">Bass Enhancer:</span>
+                            <input type="range" min="0" max="6" step="0.5" value="0" style="width: 100px;" oninput="onBassBoostSliderChange(this.value)">
+                            <span style="font-size: 12px; color: var(--text-secondary); margin-left: 12px;">Limiter:</span>
+                            <span class="taste-badge" style="background: rgba(74,222,128,0.15); color: #4ade80;">-1.0 dBFS Peak</span>
+                        </div>
+                    </div>
+
+                    <!-- Curve Visualizer Canvas -->
+                    <div class="glass-standard" style="padding: 16px; border-radius: 14px; margin-bottom: 24px;">
+                        <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">
+                            <span>Frequency Response Curve (31 Hz — 16 kHz)</span>
+                            <span id="eq-screen-curve-readout">0 dB across all bands</span>
+                        </div>
+                        <canvas id="eq-screen-curve-canvas" width="800" height="150" style="width: 100%; height: 150px; background: rgba(0,0,0,0.5); border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);"></canvas>
+                    </div>
+
+                    <!-- 10 Vertical Band Sliders -->
+                    <div class="eq-sliders-rack" style="display: flex; justify-content: space-between; gap: 10px; background: rgba(0,0,0,0.3); padding: 24px 16px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.06); overflow-x: auto;">
+                        <div class="eq-band-col" style="display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; min-width: 48px;">
+                            <span class="eq-val" id="eq-screen-val-0" style="font-size: 11px; font-weight: 700; color: #38bdf8;">0 dB</span>
+                            <input type="range" class="eq-slider-vertical" id="eq-screen-band-0" min="-12" max="12" step="0.5" value="0" orient="vertical" oninput="onEqualizerSliderChange(0, this.value); syncScreenEqCurve();">
+                            <span class="eq-freq" style="font-size: 11px; color: var(--text-secondary);">32 Hz</span>
+                        </div>
+                        <div class="eq-band-col" style="display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; min-width: 48px;">
+                            <span class="eq-val" id="eq-screen-val-1" style="font-size: 11px; font-weight: 700; color: #38bdf8;">0 dB</span>
+                            <input type="range" class="eq-slider-vertical" id="eq-screen-band-1" min="-12" max="12" step="0.5" value="0" orient="vertical" oninput="onEqualizerSliderChange(1, this.value); syncScreenEqCurve();">
+                            <span class="eq-freq" style="font-size: 11px; color: var(--text-secondary);">64 Hz</span>
+                        </div>
+                        <div class="eq-band-col" style="display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; min-width: 48px;">
+                            <span class="eq-val" id="eq-screen-val-2" style="font-size: 11px; font-weight: 700; color: #38bdf8;">0 dB</span>
+                            <input type="range" class="eq-slider-vertical" id="eq-screen-band-2" min="-12" max="12" step="0.5" value="0" orient="vertical" oninput="onEqualizerSliderChange(2, this.value); syncScreenEqCurve();">
+                            <span class="eq-freq" style="font-size: 11px; color: var(--text-secondary);">125 Hz</span>
+                        </div>
+                        <div class="eq-band-col" style="display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; min-width: 48px;">
+                            <span class="eq-val" id="eq-screen-val-3" style="font-size: 11px; font-weight: 700; color: #38bdf8;">0 dB</span>
+                            <input type="range" class="eq-slider-vertical" id="eq-screen-band-3" min="-12" max="12" step="0.5" value="0" orient="vertical" oninput="onEqualizerSliderChange(3, this.value); syncScreenEqCurve();">
+                            <span class="eq-freq" style="font-size: 11px; color: var(--text-secondary);">250 Hz</span>
+                        </div>
+                        <div class="eq-band-col" style="display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; min-width: 48px;">
+                            <span class="eq-val" id="eq-screen-val-4" style="font-size: 11px; font-weight: 700; color: #38bdf8;">0 dB</span>
+                            <input type="range" class="eq-slider-vertical" id="eq-screen-band-4" min="-12" max="12" step="0.5" value="0" orient="vertical" oninput="onEqualizerSliderChange(4, this.value); syncScreenEqCurve();">
+                            <span class="eq-freq" style="font-size: 11px; color: var(--text-secondary);">500 Hz</span>
+                        </div>
+                        <div class="eq-band-col" style="display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; min-width: 48px;">
+                            <span class="eq-val" id="eq-screen-val-5" style="font-size: 11px; font-weight: 700; color: #38bdf8;">0 dB</span>
+                            <input type="range" class="eq-slider-vertical" id="eq-screen-band-5" min="-12" max="12" step="0.5" value="0" orient="vertical" oninput="onEqualizerSliderChange(5, this.value); syncScreenEqCurve();">
+                            <span class="eq-freq" style="font-size: 11px; color: var(--text-secondary);">1 kHz</span>
+                        </div>
+                        <div class="eq-band-col" style="display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; min-width: 48px;">
+                            <span class="eq-val" id="eq-screen-val-6" style="font-size: 11px; font-weight: 700; color: #38bdf8;">0 dB</span>
+                            <input type="range" class="eq-slider-vertical" id="eq-screen-band-6" min="-12" max="12" step="0.5" value="0" orient="vertical" oninput="onEqualizerSliderChange(6, this.value); syncScreenEqCurve();">
+                            <span class="eq-freq" style="font-size: 11px; color: var(--text-secondary);">2 kHz</span>
+                        </div>
+                        <div class="eq-band-col" style="display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; min-width: 48px;">
+                            <span class="eq-val" id="eq-screen-val-7" style="font-size: 11px; font-weight: 700; color: #38bdf8;">0 dB</span>
+                            <input type="range" class="eq-slider-vertical" id="eq-screen-band-7" min="-12" max="12" step="0.5" value="0" orient="vertical" oninput="onEqualizerSliderChange(7, this.value); syncScreenEqCurve();">
+                            <span class="eq-freq" style="font-size: 11px; color: var(--text-secondary);">4 kHz</span>
+                        </div>
+                        <div class="eq-band-col" style="display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; min-width: 48px;">
+                            <span class="eq-val" id="eq-screen-val-8" style="font-size: 11px; font-weight: 700; color: #38bdf8;">0 dB</span>
+                            <input type="range" class="eq-slider-vertical" id="eq-screen-band-8" min="-12" max="12" step="0.5" value="0" orient="vertical" oninput="onEqualizerSliderChange(8, this.value); syncScreenEqCurve();">
+                            <span class="eq-freq" style="font-size: 11px; color: var(--text-secondary);">8 kHz</span>
+                        </div>
+                        <div class="eq-band-col" style="display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; min-width: 48px;">
+                            <span class="eq-val" id="eq-screen-val-9" style="font-size: 11px; font-weight: 700; color: #38bdf8;">0 dB</span>
+                            <input type="range" class="eq-slider-vertical" id="eq-screen-band-9" min="-12" max="12" step="0.5" value="0" orient="vertical" oninput="onEqualizerSliderChange(9, this.value); syncScreenEqCurve();">
+                            <span class="eq-freq" style="font-size: 11px; color: var(--text-secondary);">16 kHz</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SOURCES & QUALITY VIEW -->
+                <div id="view-sources" class="view">
+                    <div style="margin-bottom: 24px;">
+                        <span class="taste-badge" style="background: rgba(234,179,8,0.2); color: #facc15; border-color: rgba(234,179,8,0.4); margin-bottom: 6px; display: inline-block;">🔌 Streaming Engine &amp; Providers</span>
+                        <h1 style="font-size: 26px; font-weight: 800; margin: 4px 0 6px; letter-spacing: -0.02em;">Streaming Providers &amp; Addons</h1>
+                        <p style="color: var(--text-secondary); font-size: 13px;">Manage streaming decoders, source prioritization, and preferred bitrates.</p>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 28px;">
+                        <!-- InnerTube Card -->
+                        <div class="glass-standard" style="padding: 20px; border-radius: 14px; border-left: 4px solid #ef4444;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <h3 style="font-size: 16px; font-weight: 700;">YouTube Music (InnerTube)</h3>
+                                <span class="taste-badge" style="background: rgba(74,222,128,0.2); color: #4ade80;">Active (Primary)</span>
+                            </div>
+                            <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.4;">Native WEB_REMIX client. 0 API keys required, sub-250ms search latency, zero quota limits.</p>
+                            <div style="margin-top: 12px; font-size: 12px; color: var(--text-muted);">Format: Opus 160 kbps / AAC 128 kbps</div>
+                        </div>
+
+                        <!-- JioSaavn Card -->
+                        <div class="glass-standard" style="padding: 20px; border-radius: 14px; border-left: 4px solid #3b82f6;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <h3 style="font-size: 16px; font-weight: 700;">JioSaavn Pro</h3>
+                                <span class="taste-badge" style="background: rgba(74,222,128,0.2); color: #4ade80;">Active (320k)</span>
+                            </div>
+                            <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.4;">High-bitrate AAC 320 kbps stream decoder. Rich South Asian &amp; Indian catalog metadata.</p>
+                            <div style="margin-top: 12px; font-size: 12px; color: var(--text-muted);">Format: AAC 320 kbps (High Quality)</div>
+                        </div>
+
+                        <!-- Lossless Vault Card -->
+                        <div class="glass-standard" style="padding: 20px; border-radius: 14px; border-left: 4px solid #10b981;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <h3 style="font-size: 16px; font-weight: 700;">IndexedDB Lossless Vault</h3>
+                                <span class="taste-badge" style="background: rgba(168,85,247,0.2); color: #c084fc;">Local Studio</span>
+                            </div>
+                            <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.4;">Bit-exact browser storage for local 16-bit / 24-bit FLAC files with embedded ID3 metadata.</p>
+                            <div style="margin-top: 12px; font-size: 12px; color: var(--text-muted);">Format: FLAC 16-bit/44.1kHz &amp; 24-bit/96kHz</div>
+                        </div>
+                    </div>
+                </div>
+
             </main>
 
             <!-- Spotify-Style Right-Hand Now Playing Sidecar Panel -->
@@ -445,6 +786,9 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Live 3D Waveform Visualizer for Now Playing Sidecar -->
+                    <canvas id="np-visualizer-canvas" class="np-visualizer-canvas" width="400" height="96" title="Live 3D Waveform (Click to toggle)"></canvas>
 
                     <!-- Lyrics Preview Card (Spotify Styled) -->
                     <div class="np-lyrics-card" id="np-lyrics-card" title="Click to view full lyrics" onclick="openFullscreenLyrics()">
@@ -637,7 +981,7 @@
                     <div class="fs-cover-wrapper" id="fs-cover-wrapper">
                         <img id="fs-cover-image" src="" alt="Album Cover" crossorigin="anonymous">
                     </div>
-                    <canvas id="fs-visualizer-canvas" class="fs-visualizer-canvas" width="600" height="64" title="Live DSP Spectrum / Waveform Visualizer"></canvas>
+                    <canvas id="fs-visualizer-canvas" class="fs-visualizer-canvas" width="800" height="180" title="Live 3D Waveform (Click to toggle)"></canvas>
 
                     <div class="fs-info-area">
                         <h2 id="fs-title" class="fs-title">Not Playing</h2>
@@ -840,6 +1184,44 @@
                 </div>
             </div>
         </aside>
+
+        <!-- PWA Install Guide Modal -->
+        <div id="pwa-install-modal" class="modal-overlay hidden">
+            <div class="modal glass-floating" style="max-width: 440px;">
+                <button class="modal-close" onclick="closePwaInstallModal()">✕</button>
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <img src="/logo-mark.png" alt="BASA" style="width: 54px; height: 54px; border-radius: 12px; margin-bottom: 12px;">
+                    <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 6px;">Install BASA App</h2>
+                    <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.4;">
+                        Install BASA as a standalone desktop or mobile application for instant playback, offline access, and zero browser distractions.
+                    </p>
+                </div>
+                <div class="pwa-instructions-list" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
+                    <div style="display: flex; gap: 12px; align-items: center; background: rgba(255,255,255,0.06); padding: 12px 14px; border-radius: 8px;">
+                        <span style="font-size: 20px;">💻</span>
+                        <div style="font-size: 12.5px; line-height: 1.4;">
+                            <strong>Chrome / Edge (PC &amp; Mac):</strong><br>
+                            Click the <strong>Install</strong> icon in the address bar (or click the button below).
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 12px; align-items: center; background: rgba(255,255,255,0.06); padding: 12px 14px; border-radius: 8px;">
+                        <span style="font-size: 20px;">📱</span>
+                        <div style="font-size: 12.5px; line-height: 1.4;">
+                            <strong>iPhone / iPad Safari:</strong><br>
+                            Tap the <strong>Share</strong> button <span style="font-size:14px;">📤</span> then select <strong>"Add to Home Screen"</strong>.
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 12px; align-items: center; background: rgba(255,255,255,0.06); padding: 12px 14px; border-radius: 8px;">
+                        <span style="font-size: 20px;">🤖</span>
+                        <div style="font-size: 12.5px; line-height: 1.4;">
+                            <strong>Android:</strong><br>
+                            Tap the menu (⋮) and select <strong>"Install app"</strong> or <strong>"Add to Home screen"</strong>.
+                        </div>
+                    </div>
+                </div>
+                <button type="button" id="pwa-native-install-prompt-btn" class="button button-primary" style="width: 100%; justify-content: center; padding: 12px;" onclick="triggerNativeInstallPrompt()">Install Now</button>
+            </div>
+        </div>
 
         <!-- 6. Auth Modal -->
         <div id="auth-modal" class="modal-overlay hidden">
@@ -1331,6 +1713,63 @@
             </div>
         </div>
 
+        <!-- ARTIST DETAILS MODAL -->
+        <div id="artist-modal" class="modal-overlay hidden">
+            <div class="modal glass-high" style="max-width: 680px; width: 92%; max-height: 85vh; padding: 0; overflow: hidden; border-radius: 20px; display: flex; flex-direction: column;">
+                <div class="artist-modal-hero" style="background: linear-gradient(180deg, rgba(37,99,235,0.4) 0%, rgba(15,23,42,0.95) 100%); padding: 32px 24px 20px; position: relative;">
+                    <button class="modal-close" onclick="closeArtistModal()" style="position: absolute; top: 16px; right: 16px; background: rgba(0,0,0,0.5); border: none; color: #fff; width: 32px; height: 32px; border-radius: 50%; cursor: pointer;">✕</button>
+                    <div style="display: flex; gap: 20px; align-items: center;">
+                        <img id="artist-modal-img" src="/logo-mark.png" alt="Artist" style="width: 100px; height: 100px; border-radius: 50%; object-fit: cover; box-shadow: 0 8px 24px rgba(0,0,0,0.5); border: 2px solid rgba(255,255,255,0.2);">
+                        <div>
+                            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+                                <span style="font-size: 12px; color: #38bdf8; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em;">Verified Artist</span>
+                                <span style="color: #38bdf8; font-size: 14px;">✓</span>
+                            </div>
+                            <h2 id="artist-modal-name" style="font-size: 26px; font-weight: 800; margin: 0 0 6px;">Artist Name</h2>
+                            <p id="artist-modal-subtitle" style="font-size: 13px; color: var(--text-secondary); margin: 0;">Popular on BASA</p>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 10px; margin-top: 20px;">
+                        <button id="artist-modal-play-radio-btn" class="button button-primary" style="padding: 8px 18px; font-size: 13px;">▶ Play Artist Radio</button>
+                    </div>
+                </div>
+                <div style="padding: 20px 24px; overflow-y: auto; flex: 1;">
+                    <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 12px;">Top Tracks</h3>
+                    <div id="artist-modal-tracks" class="track-list" style="display: block;">
+                        <div class="loader">Loading tracks...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ALBUM DETAILS MODAL -->
+        <div id="album-modal" class="modal-overlay hidden">
+            <div class="modal glass-high" style="max-width: 680px; width: 92%; max-height: 85vh; padding: 0; overflow: hidden; border-radius: 20px; display: flex; flex-direction: column;">
+                <div class="album-modal-hero" style="background: linear-gradient(180deg, rgba(147,51,234,0.4) 0%, rgba(15,23,42,0.95) 100%); padding: 32px 24px 20px; position: relative;">
+                    <button class="modal-close" onclick="closeAlbumModal()" style="position: absolute; top: 16px; right: 16px; background: rgba(0,0,0,0.5); border: none; color: #fff; width: 32px; height: 32px; border-radius: 50%; cursor: pointer;">✕</button>
+                    <div style="display: flex; gap: 20px; align-items: center;">
+                        <img id="album-modal-img" src="/logo-mark.png" alt="Album Cover" style="width: 110px; height: 110px; border-radius: 12px; object-fit: cover; box-shadow: 0 8px 24px rgba(0,0,0,0.5);">
+                        <div>
+                            <span style="font-size: 12px; color: #c084fc; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em;">Album</span>
+                            <h2 id="album-modal-title" style="font-size: 24px; font-weight: 800; margin: 4px 0 6px;">Album Title</h2>
+                            <p id="album-modal-artist" style="font-size: 14px; color: var(--text-secondary); margin: 0 0 6px;">Artist</p>
+                            <span id="album-modal-meta" style="font-size: 12px; color: var(--text-muted);">Album · Tracks</span>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 10px; margin-top: 20px;">
+                        <button id="album-modal-play-btn" class="button button-primary" style="padding: 8px 18px; font-size: 13px;">▶ Play Album</button>
+                        <button id="album-modal-queue-btn" class="button button-secondary" style="padding: 8px 18px; font-size: 13px;">+ Add All to Queue</button>
+                    </div>
+                </div>
+                <div style="padding: 20px 24px; overflow-y: auto; flex: 1;">
+                    <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 12px;">Tracklist</h3>
+                    <div id="album-modal-tracks" class="track-list" style="display: block;">
+                        <div class="loader">Loading album songs...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- 9. Toast Notifications -->
         <div id="toast-container" class="toast-container"></div>
 
@@ -1362,6 +1801,7 @@
     <script src="/audio/dsp/analyzer.js"></script>
     <script src="/audio/dsp/dspEngine.js"></script>
     <script src="/audio/dsp/eqVisualizer.js"></script>
+    <script src="syncOutbox.js"></script>
     <script src="localLibrary.js"></script>
     <script src="playerQueueStore.js"></script>
     <script src="playbackManager.js?v=2.2.3"></script>
