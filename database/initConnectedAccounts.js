@@ -158,3 +158,4 @@ module.exports = {
     CONNECTED_ACCOUNTS_SCHEMA_SQL,
     initializeConnectedAccountsSchema
 };
+
