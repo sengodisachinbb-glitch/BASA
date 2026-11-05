@@ -164,6 +164,7 @@ class PlayerQueueStore {
             isHiRes: Boolean(s.isHiRes),
             quality: s.quality || 'STANDARD',
             recommendationReason: s.recommendationReason || s.reason || '',
+            reasonTags: Array.isArray(s.reasonTags) ? s.reasonTags : (s.reasonTags ? [s.reasonTags] : []),
             aiCurated: Boolean(s.aiCurated)
         };
     }
@@ -845,13 +846,40 @@ class PlayerQueueStore {
     checkAutoQueueRefill() {
         if (!this.state.autoplayEnabled) return;
         const upcomingAutoplay = this.getAutoplayItems();
-        if (upcomingAutoplay.length >= 5) return;
+        // BASA 2.0: Refill Autoplay when three or fewer automatic upcoming tracks remain
+        if (upcomingAutoplay.length > 3) return;
         if (this.isFetchingAutoQueue) return;
 
         if (this.refillDebounceTimer) clearTimeout(this.refillDebounceTimer);
         this.refillDebounceTimer = setTimeout(() => {
             this._fetchAutoQueueRecommendations();
         }, 300);
+    }
+
+    /**
+     * Circuit Breaker & Unplayable Stream Protection
+     * Prevents infinite skip loops when streams fail to resolve
+     */
+    handleStreamFailure(failedItem) {
+        if (!failedItem) return null;
+        this.consecutiveFailures = (this.consecutiveFailures || 0) + 1;
+
+        if (failedItem.song) {
+            failedItem.song.audioUrl = 'UNPLAYABLE';
+        }
+        this.remove(failedItem.queueItemId || failedItem.id);
+
+        if (this.consecutiveFailures >= 3) {
+            console.warn('[PlayerQueueStore] Circuit breaker triggered: 3 consecutive stream failures.');
+            this.state.isPlaying = false;
+            return null;
+        }
+
+        return this.next(false);
+    }
+
+    resetStreamFailures() {
+        this.consecutiveFailures = 0;
     }
 
     async _fetchAutoQueueRecommendations() {

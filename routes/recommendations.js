@@ -13,6 +13,9 @@
 const express = require('express');
 const router = express.Router();
 const RadioEngine = require('../services/recommendation/radioEngine');
+const autoplayEngine = require('../services/recommendation/autoplayEngine');
+const tasteProfileEngine = require('../services/recommendation/tasteProfileEngine');
+const listeningHistoryManager = require('../services/recommendation/listeningHistoryManager');
 
 function getEngine(req) {
     const db = req.app.locals.db;
@@ -31,6 +34,7 @@ function getUserId(req) {
  */
 router.get('/recommendations/next', async (req, res) => {
     try {
+        const db = req.app.locals.db;
         const engine = getEngine(req);
         const { seedSongId, seedIds = '', limit = 20, exclude = '', mode = 'song' } = req.query;
 
@@ -41,16 +45,43 @@ router.get('/recommendations/next', async (req, res) => {
         const excludeIds = exclude ? String(exclude).split(',').map(s => s.trim()).filter(Boolean) : [];
         const multiSeedIds = seedIds ? String(seedIds).split(',').map(s => s.trim()).filter(Boolean) : [seedSongId];
         const userId = getUserId(req);
-        const userHistory = engine.getUserHistory(userId);
 
-        const recommendations = await engine.getNextRecommendationsAsync(seedSongId, {
-            seedIds: multiSeedIds,
-            limit: parseInt(limit, 10) || 20,
-            exclude: excludeIds,
-            userHistory,
-            userId,
-            mode
-        });
+        // Fetch seed song from catalog
+        let seedSong = null;
+        if (db) {
+            try {
+                const stmt = db.prepare('SELECT * FROM songs WHERE id = ?');
+                stmt.bind([String(seedSongId)]);
+                if (stmt.step()) {
+                    const cols = stmt.getColumnNames();
+                    const vals = stmt.get();
+                    seedSong = {};
+                    cols.forEach((c, i) => seedSong[c] = vals[i]);
+                }
+                stmt.free();
+            } catch (e) {}
+        }
+
+        let recommendations = [];
+        if (seedSong && db) {
+            recommendations = await autoplayEngine.recommendNext(db, userId, seedSong, {
+                limit: parseInt(limit, 10) || 20,
+                recentPlays: excludeIds
+            });
+        }
+
+        // Fallback to existing radioEngine if needed
+        if (!recommendations || recommendations.length === 0) {
+            const userHistory = engine.getUserHistory(userId);
+            recommendations = await engine.getNextRecommendationsAsync(seedSongId, {
+                seedIds: multiSeedIds,
+                limit: parseInt(limit, 10) || 20,
+                exclude: excludeIds,
+                userHistory,
+                userId,
+                mode
+            });
+        }
 
         res.json({
             success: true,
@@ -268,12 +299,92 @@ router.post('/radio/prompt', async (req, res) => {
 });
 
 /**
+ * POST /api/basa-events
+ * Native 12-event collector for BASA 2.0
+ */
+router.post('/basa-events', (req, res) => {
+    try {
+        const db = req.app.locals.db;
+        const userId = getUserId(req);
+        const { eventType, trackId, songId, durationSeconds, percentageCompleted, skipTimestamp, contextSource, metadata } = req.body;
+
+        const effectiveTrackId = trackId || songId;
+        if (!eventType || !effectiveTrackId) {
+            return res.status(400).json({ success: false, error: 'eventType and trackId (or songId) are required' });
+        }
+
+        const success = listeningHistoryManager.recordEvent(db, userId, {
+            eventType,
+            trackId: effectiveTrackId,
+            durationSeconds,
+            percentageCompleted,
+            skipTimestamp,
+            contextSource,
+            metadata: metadata || req.body
+        });
+
+        // Also record in legacy radio engine for backwards compatibility
+        const engine = getEngine(req);
+        if (['play', 'skip', 'like', 'complete', 'replay'].includes(eventType)) {
+            engine.recordEvent(userId, effectiveTrackId, eventType, skipTimestamp || durationSeconds, durationSeconds);
+        }
+
+        // Recompute taste profile incrementally
+        tasteProfileEngine.computeProfile(db, userId);
+
+        if (req.app.locals.saveDb) req.app.locals.saveDb();
+
+        res.json({
+            success,
+            message: `Event "${eventType}" recorded successfully`
+        });
+    } catch (err) {
+        console.error('[RecommendationsAPI] basa-events record error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/**
+ * GET /api/basa-events
+ */
+router.get('/basa-events', (req, res) => {
+    try {
+        const db = req.app.locals.db;
+        const userId = getUserId(req);
+        const limit = parseInt(req.query.limit, 10) || 50;
+        const eventType = req.query.eventType || null;
+
+        const events = listeningHistoryManager.getEvents(db, userId, { limit, eventType });
+        res.json({ success: true, count: events.length, events });
+    } catch (err) {
+        console.error('[RecommendationsAPI] basa-events get error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/**
+ * GET /api/taste-profile
+ */
+router.get('/taste-profile', (req, res) => {
+    try {
+        const db = req.app.locals.db;
+        const userId = getUserId(req);
+        const profile = tasteProfileEngine.getProfile(db, userId);
+        res.json({ success: true, profile });
+    } catch (err) {
+        console.error('[RecommendationsAPI] taste-profile error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/**
  * POST /api/events
  * Ingests user behavior events: play, skip, like, complete (with listenedSeconds)
  */
 router.post('/events', (req, res) => {
     try {
         const engine = getEngine(req);
+        const db = req.app.locals.db;
         const { songId, eventType, listenedSeconds = 0, durationSeconds = 0 } = req.body;
 
         if (!songId || !eventType) {
@@ -287,6 +398,25 @@ router.post('/events', (req, res) => {
 
         const userId = getUserId(req);
         const success = engine.recordEvent(userId, songId, eventType, listenedSeconds, durationSeconds);
+
+        // Also record in BASA listening events
+        const eventMap = {
+            'play': 'track_started',
+            'skip': 'track_skipped',
+            'like': 'like',
+            'complete': 'track_completed',
+            'replay': 'replay'
+        };
+        const mappedType = eventMap[eventType] || eventType;
+        listeningHistoryManager.recordEvent(db, userId, {
+            eventType: mappedType,
+            trackId: songId,
+            durationSeconds,
+            skipTimestamp: eventType === 'skip' ? listenedSeconds : 0,
+            percentageCompleted: durationSeconds > 0 ? (listenedSeconds / durationSeconds) * 100 : 0
+        });
+
+        tasteProfileEngine.computeProfile(db, userId);
 
         if (req.app.locals.saveDb) {
             req.app.locals.saveDb();
@@ -309,8 +439,10 @@ router.post('/events', (req, res) => {
 router.delete('/events', (req, res) => {
     try {
         const engine = getEngine(req);
+        const db = req.app.locals.db;
         const userId = getUserId(req);
         const success = engine.clearUserHistory(userId);
+        listeningHistoryManager.clearEvents(db, userId);
 
         if (req.app.locals.saveDb) {
             req.app.locals.saveDb();
