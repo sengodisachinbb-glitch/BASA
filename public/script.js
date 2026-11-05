@@ -132,6 +132,12 @@ async function api(endpoint, options = {}) {
     return data;
 }
 
+// Stage 3B.1: Offline Client Mutation Outbox instance
+if (typeof window !== 'undefined' && typeof SyncOutbox !== 'undefined') {
+    window.basaSyncOutbox = new SyncOutbox();
+    window.basaSyncOutbox.init().catch(err => console.warn('[SyncOutbox] Init notice:', err.message));
+}
+
 // 3. TOAST NOTIFICATIONS
 let lastToastMsg = '';
 let lastToastTime = 0;
@@ -424,9 +430,9 @@ const DEFAULT_SPOTIFY_RECENT_SEARCHES = [
 function getRecentSearches() {
     try {
         const raw = localStorage.getItem(RECENT_SEARCHES_STORAGE_KEY);
-        if (raw) {
+        if (raw !== null) {
             const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            if (Array.isArray(parsed)) return parsed;
         }
         localStorage.setItem(RECENT_SEARCHES_STORAGE_KEY, JSON.stringify(DEFAULT_SPOTIFY_RECENT_SEARCHES));
         return DEFAULT_SPOTIFY_RECENT_SEARCHES;
@@ -620,27 +626,10 @@ async function fetchSearchSuggestions(query) {
     }
 }
 
-function renderSuggestionsDropdown(tracks, query) {
-    const dropdown = document.getElementById('search-suggestions-dropdown');
-    if (!dropdown) return;
-
-    if (!tracks || tracks.length === 0) {
-        dropdown.innerHTML = `
-            <div class="sp-sugg-header">
-                <span class="sp-sugg-title">Suggestions</span>
-            </div>
-            <div class="sp-sugg-empty">
-                <div class="sp-sugg-empty-title">No direct suggestions for "${escapeHtml(query)}"</div>
-                <div class="sp-sugg-tip">Press Enter to perform a deep multi-source search</div>
-            </div>
-        `;
-        currentSuggestionsList = [];
-        searchSuggestionsSelectedIndex = -1;
-        return;
-    }
-
+function formatSuggestions(tracks, query) {
+    if (!tracks || !Array.isArray(tracks)) return [];
     const suggestions = [];
-    const qLower = query.toLowerCase().trim();
+    const qLower = (query || '').toLowerCase().trim();
 
     // 1. Check if the query matches an artist in the results
     const artistCandidate = tracks.find(t => {
@@ -661,11 +650,11 @@ function renderSuggestionsDropdown(tracks, query) {
 
     // 2. Add top matching song entries
     tracks.slice(0, 6).forEach((t, i) => {
-        const cleaned = cleanMusicTitle(t.title, t.artist);
+        const cleaned = typeof cleanMusicTitle === 'function' ? cleanMusicTitle(t.title, t.artist) : { title: t.title, artist: t.artist, explicit: !!t.explicit };
         suggestions.push({
             id: t.id || t.videoId || ('sugg_' + i),
-            title: cleaned.title,
-            artist: cleaned.artist,
+            title: cleaned.title || t.title,
+            artist: cleaned.artist || t.artist,
             cover: t.thumbnail || t.cover || '/logo-mark.png',
             type: 'song',
             explicit: cleaned.explicit || !!t.explicit,
@@ -674,11 +663,11 @@ function renderSuggestionsDropdown(tracks, query) {
         });
 
         // 3. If an album is identified and distinct from song title, add Album entry
-        if (t.album && t.album.toLowerCase() !== cleaned.title.toLowerCase() && suggestions.filter(s => s.type === 'album').length === 0) {
+        if (t.album && t.album.toLowerCase() !== (cleaned.title || t.title).toLowerCase() && suggestions.filter(s => s.type === 'album').length === 0) {
             suggestions.push({
                 id: 'album_' + encodeURIComponent(t.album),
                 title: t.album,
-                artist: cleaned.artist,
+                artist: cleaned.artist || t.artist,
                 cover: t.thumbnail || t.cover || '/logo-mark.png',
                 type: 'album',
                 explicit: false
@@ -686,6 +675,29 @@ function renderSuggestionsDropdown(tracks, query) {
         }
     });
 
+    return suggestions;
+}
+
+function renderSuggestionsDropdown(tracks, query) {
+    const dropdown = document.getElementById('search-suggestions-dropdown');
+    if (!dropdown) return;
+
+    if (!tracks || tracks.length === 0) {
+        dropdown.innerHTML = `
+            <div class="sp-sugg-header">
+                <span class="sp-sugg-title">Suggestions</span>
+            </div>
+            <div class="sp-sugg-empty">
+                <div class="sp-sugg-empty-title">No direct suggestions for "${escapeHtml(query)}"</div>
+                <div class="sp-sugg-tip">Press Enter to perform a deep multi-source search</div>
+            </div>
+        `;
+        currentSuggestionsList = [];
+        searchSuggestionsSelectedIndex = -1;
+        return;
+    }
+
+    const suggestions = formatSuggestions(tracks, query);
     currentSuggestionsList = suggestions;
     searchSuggestionsSelectedIndex = -1;
 
@@ -1378,6 +1390,12 @@ function toggleNowPlayingSidecar(forcedState) {
     if (toggleBtn) {
         toggleBtn.classList.toggle('active', !willCollapse);
     }
+    if (!willCollapse) {
+        const npCanvas = document.getElementById('np-visualizer-canvas');
+        if (npCanvas && window.eqVisualizer && window.dspEngine && window.dspEngine.analyzer) {
+            window.eqVisualizer.startLiveVisualizer(npCanvas, window.dspEngine.analyzer);
+        }
+    }
     try {
         localStorage.setItem('basa_now_playing_sidecar', willCollapse ? '0' : '1');
     } catch (e) {}
@@ -1395,6 +1413,11 @@ function updateNowPlayingSidecar(trackData) {
     if (npTitle) npTitle.textContent = trackData.title || 'Not Playing';
     if (npArtist) npArtist.textContent = trackData.artist || '';
     if (npContext) npContext.textContent = trackData.title ? `Based on ${trackData.title}` : 'Now Playing';
+
+    const npCanvas = document.getElementById('np-visualizer-canvas');
+    if (npCanvas && window.eqVisualizer && window.dspEngine && window.dspEngine.analyzer) {
+        window.eqVisualizer.startLiveVisualizer(npCanvas, window.dspEngine.analyzer);
+    }
 
     if (npLikeBtn && trackData.id) {
         checkIfLiked(trackData.id, trackData.source).then(liked => {
@@ -3826,6 +3849,29 @@ async function toggleLike(trackId, source, encodedData) {
     const trackData = JSON.parse(decodeURIComponent(encodedData));
     const isLiked = state.likedTrackIds.has(String(trackId));
 
+    // Offline optimistic queueing if client is disconnected
+    if (typeof navigator !== 'undefined' && !navigator.onLine && window.basaSyncOutbox) {
+        try {
+            await window.basaSyncOutbox.queueMutation(isLiked ? 'UNLIKE_TRACK' : 'LIKE_TRACK', {
+                track_id: String(trackId),
+                track_source: source,
+                track_data: trackData
+            });
+            if (isLiked) {
+                state.likedTrackIds.delete(String(trackId));
+                showToast('Removed from likes (offline queued 📶)');
+            } else {
+                state.likedTrackIds.add(String(trackId));
+                showToast('Added to likes (offline queued 📶)', 'success');
+            }
+            updatePlayerLikeButton();
+            if (state.currentView === 'library') loadLibrary();
+            return;
+        } catch (queueErr) {
+            console.warn('[SyncOutbox] Failed to queue offline mutation:', queueErr);
+        }
+    }
+
     try {
         if (isLiked) {
             await api(`/library/like/${trackId}?source=${source}`, { method: 'DELETE' });
@@ -3858,6 +3904,18 @@ async function toggleLike(trackId, source, encodedData) {
         // Refresh library view if active
         if (state.currentView === 'library') loadLibrary();
     } catch (err) {
+        // Fallback to outbox on transient network errors
+        if ((err.message.includes('fetch') || err.message.includes('network') || err.message.includes('failed')) && window.basaSyncOutbox) {
+            try {
+                await window.basaSyncOutbox.queueMutation(isLiked ? 'UNLIKE_TRACK' : 'LIKE_TRACK', {
+                    track_id: String(trackId),
+                    track_source: source,
+                    track_data: trackData
+                });
+                showToast('Network error: Queued change to sync later 📶', 'info');
+                return;
+            } catch (queueErr) {}
+        }
         showToast(err.message, 'error');
     }
 }
@@ -4426,53 +4484,75 @@ function setupFullScreenPlayer() {
     // Default to artwork centered mode initially
     setFsPlayerMode('artwork');
 
-    if (trackInfoBtn && fsPlayer) {
-        trackInfoBtn.addEventListener('click', () => {
-            if (!state.currentTrack) return;
-            fsPlayer.classList.remove('hidden');
-            fsPlayer.setAttribute('aria-hidden', 'false');
-            document.body.classList.add('fullscreen-player-open');
-            // Allow display change before opacity fade
-            setTimeout(() => fsPlayer.classList.add('active'), 10);
-            
-            // Re-extract color if cover was updated before it was open
-            const img = document.getElementById('fs-cover-image');
-            if (img && img.src) extractColorsFromImage(img);
+    window.openFullScreenPlayer = function() {
+        if (!state.currentTrack) return;
+        if (!fsPlayer) return;
+        fsPlayer.classList.remove('hidden');
+        fsPlayer.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('fullscreen-player-open');
+        // Allow display change before opacity fade
+        setTimeout(() => fsPlayer.classList.add('active'), 10);
+        
+        // Re-extract color if cover was updated before it was open
+        const img = document.getElementById('fs-cover-image');
+        if (img && img.src) extractColorsFromImage(img);
 
-            // Determine mode on open
-            if (isLyricsAvailable && userWantsLyrics) {
-                setFsPlayerMode('lyrics');
-            } else {
-                setFsPlayerMode('artwork');
-            }
+        // Determine mode on open
+        if (isLyricsAvailable && userWantsLyrics) {
+            setFsPlayerMode('lyrics');
+        } else {
+            setFsPlayerMode('artwork');
+        }
 
-            // Ensure lyrics are loaded
-            if (state.currentTrack && (!currentLyricsData || currentLyricsTrackId !== state.currentTrack.id)) {
-                loadLyricsForTrack(state.currentTrack);
-            } else if (currentLyricsData && currentLyricsData.synced && fsPlayerMode === 'lyrics') {
-                setTimeout(() => {
-                    const ct = window.playbackManager ? window.playbackManager.getCurrentTime() : 0;
-                    syncLyricsTick(ct, true);
-                }, 120);
-            }
+        // Ensure lyrics are loaded
+        if (state.currentTrack && (!currentLyricsData || currentLyricsTrackId !== state.currentTrack.id)) {
+            loadLyricsForTrack(state.currentTrack);
+        } else if (currentLyricsData && currentLyricsData.synced && fsPlayerMode === 'lyrics') {
+            setTimeout(() => {
+                const ct = window.playbackManager ? window.playbackManager.getCurrentTime() : 0;
+                syncLyricsTick(ct, true);
+            }, 120);
+        }
 
-            // Start live audio visualizer for Fullscreen Player
-            const visCanvas = document.getElementById('fs-visualizer-canvas');
-            if (visCanvas && window.eqVisualizer && window.dspEngine && window.dspEngine.analyzer) {
-                window.eqVisualizer.startLiveVisualizer(visCanvas, window.dspEngine.analyzer);
-            }
-        });
+        // Start live audio visualizer for Fullscreen Player
+        const visCanvas = document.getElementById('fs-visualizer-canvas');
+        if (visCanvas && window.eqVisualizer && window.dspEngine && window.dspEngine.analyzer) {
+            window.eqVisualizer.startLiveVisualizer(visCanvas, window.dspEngine.analyzer);
+        }
+    };
+
+    if (trackInfoBtn) {
+        trackInfoBtn.addEventListener('click', window.openFullScreenPlayer);
     }
 
-    // Toggle spectrum / waveform on visualizer canvas click
+    // Toggle 3D waveform / spectrum on visualizer canvas click
     const visCanvasEl = document.getElementById('fs-visualizer-canvas');
     if (visCanvasEl) {
         visCanvasEl.addEventListener('click', () => {
             if (window.eqVisualizer) {
                 const newMode = window.eqVisualizer.toggleMode();
-                showToast(`Visualizer mode: ${newMode}`, 'info');
+                const label = newMode === '3D_WAVEFORM' ? 'Smooth 3D Waveform' : 'Spectrum Analyzer';
+                showToast(`Visualizer mode: ${label}`, 'info');
             }
         });
+    }
+
+    const npCanvasEl = document.getElementById('np-visualizer-canvas');
+    if (npCanvasEl) {
+        npCanvasEl.addEventListener('click', () => {
+            if (window.eqVisualizer) {
+                const newMode = window.eqVisualizer.toggleMode();
+                const label = newMode === '3D_WAVEFORM' ? 'Smooth 3D Waveform' : 'Spectrum Analyzer';
+                showToast(`Visualizer mode: ${label}`, 'info');
+            }
+        });
+        // If sidecar is initially open, start visualizer
+        const sidecar = document.getElementById('now-playing-panel');
+        if (sidecar && !sidecar.classList.contains('collapsed')) {
+            if (window.eqVisualizer && window.dspEngine && window.dspEngine.analyzer) {
+                window.eqVisualizer.startLiveVisualizer(npCanvasEl, window.dspEngine.analyzer);
+            }
+        }
     }
 
     // Native Fullscreen toggle button (top right: ⤢)
@@ -6974,3 +7054,13 @@ window.openArtistModal = openArtistModal;
 window.closeArtistModal = closeArtistModal;
 window.openAlbumModal = openAlbumModal;
 window.closeAlbumModal = closeAlbumModal;
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        getRecentSearches,
+        saveRecentSearch,
+        removeRecentSearch,
+        clearAllRecentSearches,
+        formatSuggestions
+    };
+}

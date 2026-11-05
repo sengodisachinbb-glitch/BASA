@@ -787,6 +787,9 @@
                         </div>
                     </div>
 
+                    <!-- Live 3D Waveform Visualizer for Now Playing Sidecar -->
+                    <canvas id="np-visualizer-canvas" class="np-visualizer-canvas" width="400" height="96" title="Live 3D Waveform (Click to toggle)"></canvas>
+
                     <!-- Lyrics Preview Card (Spotify Styled) -->
                     <div class="np-lyrics-card" id="np-lyrics-card" title="Click to view full lyrics" onclick="openFullscreenLyrics()">
                         <div class="np-lyrics-card-header">
@@ -978,7 +981,7 @@
                     <div class="fs-cover-wrapper" id="fs-cover-wrapper">
                         <img id="fs-cover-image" src="" alt="Album Cover" crossorigin="anonymous">
                     </div>
-                    <canvas id="fs-visualizer-canvas" class="fs-visualizer-canvas" width="600" height="64" title="Live DSP Spectrum / Waveform Visualizer"></canvas>
+                    <canvas id="fs-visualizer-canvas" class="fs-visualizer-canvas" width="800" height="180" title="Live 3D Waveform (Click to toggle)"></canvas>
 
                     <div class="fs-info-area">
                         <h2 id="fs-title" class="fs-title">Not Playing</h2>
@@ -1790,6 +1793,7 @@
     <script src="/audio/dsp/analyzer.js"></script>
     <script src="/audio/dsp/dspEngine.js"></script>
     <script src="/audio/dsp/eqVisualizer.js"></script>
+    <script src="syncOutbox.js"></script>
     <script src="localLibrary.js"></script>
     <script src="playerQueueStore.js"></script>
     <script src="playbackManager.js?v=2.2.3"></script>
