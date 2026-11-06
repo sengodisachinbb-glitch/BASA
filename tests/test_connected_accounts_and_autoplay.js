@@ -27,6 +27,7 @@ const tasteProfileEngine = require('../services/recommendation/tasteProfileEngin
 const autoplayEngine = require('../services/recommendation/autoplayEngine');
 const { initializeConnectedAccountsSchema } = require('../database/initConnectedAccounts');
 const { PlayerQueueStore, QueueSource } = require('../public/playerQueueStore');
+const connectedAccountsRouter = require('../routes/connectedAccounts');
 
 async function runTests() {
     console.log('\n================================================================================');
@@ -66,6 +67,15 @@ async function runTests() {
 
     // Initialize core schema
     db.run(`
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            username TEXT UNIQUE NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            avatar_url TEXT DEFAULT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE TABLE IF NOT EXISTS songs (
             id TEXT PRIMARY KEY,
             title TEXT NOT NULL,
@@ -214,6 +224,42 @@ async function runTests() {
     }
 
     console.log('--- PART 1: CONNECTED ACCOUNTS & TOKEN CIPHER ---');
+
+    test('OAuth Sign-in & User Auto-Creation (Google & Spotify)', () => {
+        // 1. New user registration via Google OAuth
+        const googleUser = connectedAccountsRouter.findOrCreateOAuthUser(db, {
+            email: 'newbie_google@gmail.com',
+            name: 'Anirudh Fan',
+            provider: 'google',
+            providerId: 'g_uid_9999',
+            avatarUrl: 'https://images.example.com/avatar1.jpg'
+        });
+
+        assert(googleUser.id, 'Created user must have an ID');
+        assert.strictEqual(googleUser.email, 'newbie_google@gmail.com');
+        assert(googleUser.username.startsWith('Anirudh_Fan') || googleUser.username.startsWith('user'), 'Username should be derived from name');
+        assert.strictEqual(googleUser.avatar_url, 'https://images.example.com/avatar1.jpg');
+
+        // Check user in database
+        const stmt = db.prepare('SELECT * FROM users WHERE email = ?');
+        stmt.bind(['newbie_google@gmail.com']);
+        assert(stmt.step(), 'User must exist in users table');
+        const dbRow = stmt.getAsObject();
+        stmt.free();
+        assert(dbRow.password_hash.startsWith('$2'), 'Password hash must be valid bcrypt hash');
+
+        // 2. Existing user sign-in via Spotify OAuth with same email
+        const spotifyUser = connectedAccountsRouter.findOrCreateOAuthUser(db, {
+            email: 'newbie_google@gmail.com',
+            name: 'Anirudh Spotify',
+            provider: 'spotify',
+            providerId: 'sp_uid_8888',
+            avatarUrl: 'https://images.example.com/avatar2.jpg'
+        });
+
+        assert.strictEqual(spotifyUser.id, googleUser.id, 'Should associate with existing user account by email');
+        assert.strictEqual(spotifyUser.email, 'newbie_google@gmail.com');
+    });
 
     test('AES-256-GCM Token Encryption & Decryption', () => {
         const rawToken = 'ya29.a0AfH6SMD_very_secret_oauth_token_12345';
