@@ -9,14 +9,92 @@
 
 const express = require('express');
 const router = express.Router();
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const { v4: uuidv4 } = require('uuid');
+const { optionalAuth } = require('../middleware/auth');
 const googleService = require('../services/connectedAccounts/googleService');
 const spotifyService = require('../services/connectedAccounts/spotifyService');
 const accountManager = require('../services/connectedAccounts/accountManager');
 const libraryManager = require('../services/unifiedLibrary/libraryManager');
 
+router.use(optionalAuth);
+
 function getUserId(req) {
     if (req.user && req.user.id) return req.user.id;
     return req.headers['x-session-id'] || req.query.sessionId || req.ip || 'anonymous_user';
+}
+
+// SQL query helpers
+function getOne(db, sql, params = []) {
+    if (!db) return null;
+    const stmt = db.prepare(sql);
+    stmt.bind(params);
+    let row = null;
+    if (stmt.step()) {
+        const cols = stmt.getColumnNames();
+        const vals = stmt.get();
+        row = {};
+        cols.forEach((col, i) => row[col] = vals[i]);
+    }
+    stmt.free();
+    return row;
+}
+
+function runSql(db, sql, params = []) {
+    if (!db) return;
+    db.run(sql, params);
+}
+
+/**
+ * Resolves or creates a BASA user from OAuth profile credentials
+ */
+function findOrCreateOAuthUser(db, { email, name, provider, providerId, avatarUrl }) {
+    if (!db) return null;
+    let user = null;
+
+    if (email) {
+        user = getOne(db, 'SELECT * FROM users WHERE email = ?', [email]);
+    }
+
+    if (!user && provider && providerId) {
+        const existingAcc = getOne(db, 'SELECT user_id FROM connected_accounts WHERE provider = ? AND provider_user_id = ?', [provider, String(providerId)]);
+        if (existingAcc && existingAcc.user_id) {
+            user = getOne(db, 'SELECT * FROM users WHERE id = ?', [existingAcc.user_id]);
+        }
+    }
+
+    if (!user) {
+        const userId = uuidv4();
+        const rawName = (name || (email ? email.split('@')[0] : 'user')).trim();
+        const baseName = rawName.replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 20) || 'user';
+
+        let candidateName = baseName;
+        let counter = 1;
+        while (getOne(db, 'SELECT id FROM users WHERE username = ?', [candidateName])) {
+            candidateName = `${baseName}_${Math.floor(Math.random() * 8999 + 1000)}`;
+            if (++counter > 10) break;
+        }
+
+        const safeEmail = email || `${providerId || uuidv4()}@${provider}.basa.app`;
+        const dummyPasswordHash = bcrypt.hashSync(uuidv4(), 10);
+        const finalAvatar = avatarUrl || null;
+
+        runSql(db, 'INSERT INTO users (id, username, email, password_hash, avatar_url) VALUES (?, ?, ?, ?, ?)',
+            [userId, candidateName, safeEmail, dummyPasswordHash, finalAvatar]);
+
+        user = {
+            id: userId,
+            username: candidateName,
+            email: safeEmail,
+            avatar_url: finalAvatar
+        };
+    } else if (avatarUrl && !user.avatar_url) {
+        runSql(db, 'UPDATE users SET avatar_url = ? WHERE id = ?', [avatarUrl, user.id]);
+        user.avatar_url = avatarUrl;
+    }
+
+    return user;
 }
 
 /**
@@ -50,12 +128,32 @@ router.get('/google/callback', async (req, res) => {
         const { code, state } = req.query;
         if (!code) return res.status(400).send('Authorization code missing');
 
-        const userId = state || getUserId(req);
         const tokenData = await googleService.exchangeCodeForTokens(code);
         const profile = await googleService.getUserProfile(tokenData.accessToken);
         const channel = await googleService.getYouTubeChannel(tokenData.accessToken);
 
         const db = req.app.locals.db;
+
+        // Resolve or create user
+        let user = null;
+        if (state && state !== 'anonymous_user' && !state.startsWith('anon_') && state !== 'basa_google_auth') {
+            user = getOne(db, 'SELECT * FROM users WHERE id = ?', [state]);
+        }
+        if (!user && req.user && req.user.id) {
+            user = getOne(db, 'SELECT * FROM users WHERE id = ?', [req.user.id]);
+        }
+        if (!user) {
+            user = findOrCreateOAuthUser(db, {
+                email: profile.email,
+                name: profile.name,
+                provider: 'google',
+                providerId: profile.id,
+                avatarUrl: profile.picture
+            });
+        }
+
+        const userId = user ? user.id : (state || getUserId(req));
+
         await accountManager.saveAccount(db, userId, 'google', {
             providerUserId: profile.id,
             providerEmail: profile.email,
@@ -70,8 +168,22 @@ router.get('/google/callback', async (req, res) => {
 
         if (req.app.locals.saveDb) req.app.locals.saveDb();
 
-        // Redirect to settings page with status
-        res.redirect('/?connected=google');
+        const jwtSecret = process.env.JWT_SECRET || 'basa_super_secure_vault_default_secret_key_2026';
+        const authToken = jwt.sign(
+            { id: user.id, username: user.username, email: user.email },
+            jwtSecret,
+            { expiresIn: '30d' }
+        );
+
+        const userPayload = encodeURIComponent(JSON.stringify({
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            avatar_url: user.avatar_url || null
+        }));
+
+        // Redirect to homepage with auth credentials and connection status
+        res.redirect(`/?auth_token=${authToken}&user=${userPayload}&connected=google`);
     } catch (err) {
         console.error('[GoogleCallback] error:', err);
         res.status(500).send(`Google authorization error: ${err.message}`);
@@ -177,11 +289,31 @@ router.get('/spotify/callback', async (req, res) => {
         const { code, state } = req.query;
         if (!code) return res.status(400).send('Authorization code missing');
 
-        const userId = state || getUserId(req);
         const tokenData = await spotifyService.exchangeCodeForTokens(code);
         const profile = await spotifyService.getUserProfile(tokenData.accessToken);
 
         const db = req.app.locals.db;
+
+        // Resolve or create user
+        let user = null;
+        if (state && state !== 'anonymous_user' && !state.startsWith('anon_') && state !== 'basa_spotify_auth') {
+            user = getOne(db, 'SELECT * FROM users WHERE id = ?', [state]);
+        }
+        if (!user && req.user && req.user.id) {
+            user = getOne(db, 'SELECT * FROM users WHERE id = ?', [req.user.id]);
+        }
+        if (!user) {
+            user = findOrCreateOAuthUser(db, {
+                email: profile.email,
+                name: profile.display_name,
+                provider: 'spotify',
+                providerId: profile.id,
+                avatarUrl: profile.images?.[0]?.url
+            });
+        }
+
+        const userId = user ? user.id : (state || getUserId(req));
+
         await accountManager.saveAccount(db, userId, 'spotify', {
             providerUserId: profile.id,
             providerEmail: profile.email,
@@ -195,7 +327,21 @@ router.get('/spotify/callback', async (req, res) => {
 
         if (req.app.locals.saveDb) req.app.locals.saveDb();
 
-        res.redirect('/?connected=spotify');
+        const jwtSecret = process.env.JWT_SECRET || 'basa_super_secure_vault_default_secret_key_2026';
+        const authToken = jwt.sign(
+            { id: user.id, username: user.username, email: user.email },
+            jwtSecret,
+            { expiresIn: '30d' }
+        );
+
+        const userPayload = encodeURIComponent(JSON.stringify({
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            avatar_url: user.avatar_url || null
+        }));
+
+        res.redirect(`/?auth_token=${authToken}&user=${userPayload}&connected=spotify`);
     } catch (err) {
         console.error('[SpotifyCallback] error:', err);
         res.status(500).send(`Spotify authorization error: ${err.message}`);
@@ -284,6 +430,8 @@ router.post('/spotify/disconnect', async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 });
+
+router.findOrCreateOAuthUser = findOrCreateOAuthUser;
 
 module.exports = router;
 

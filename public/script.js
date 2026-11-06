@@ -4402,11 +4402,26 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Check connected accounts callback notice
+    // Check connected accounts and OAuth sign-in callback notice
     const urlParams = new URLSearchParams(window.location.search);
+    const authToken = urlParams.get('auth_token');
+    const userParam = urlParams.get('user');
     const connectedProvider = urlParams.get('connected');
-    if (connectedProvider) {
+
+    if (authToken) {
+        try {
+            const user = userParam ? JSON.parse(decodeURIComponent(userParam)) : null;
+            loginUser(authToken, user);
+            hideAuthModal();
+            showToast(`Welcome to BASA${user?.username ? ', ' + user.username : ''}!`, 'success');
+        } catch (err) {
+            console.error('[OAuth Login] error parsing user param:', err);
+        }
+    } else if (connectedProvider) {
         showToast(`Successfully connected ${connectedProvider === 'google' ? 'Google / YouTube Music' : 'Spotify'}!`, 'success');
+    }
+
+    if (authToken || connectedProvider) {
         const cleanUrl = window.location.pathname + window.location.hash;
         window.history.replaceState({}, document.title, cleanUrl);
     }
@@ -5512,15 +5527,25 @@ async function loadConnectedAccounts() {
     }
 }
 
-async function connectGoogleAccount() {
+async function initiateOAuthLogin(provider) {
     try {
-        const res = await fetch('/api/connected-accounts/google/auth-url').then(r => r.json());
+        const headers = {};
+        if (state.token) {
+            headers['Authorization'] = `Bearer ${state.token}`;
+        }
+        const res = await fetch(`/api/connected-accounts/${provider}/auth-url`, { headers }).then(r => r.json());
         if (res.authUrl) {
             window.location.href = res.authUrl;
+        } else {
+            showToast(`Could not start ${provider} authorization: ` + (res.error || 'Server error'), 'error');
         }
     } catch (err) {
-        showToast('Failed to start Google sign-in: ' + err.message, 'error');
+        showToast(`Failed to initiate ${provider} login: ` + err.message, 'error');
     }
+}
+
+async function connectGoogleAccount() {
+    return initiateOAuthLogin('google');
 }
 
 async function syncGoogleLibrary() {
@@ -5556,14 +5581,7 @@ async function disconnectGoogleAccount() {
 }
 
 async function connectSpotifyAccount() {
-    try {
-        const res = await fetch('/api/connected-accounts/spotify/auth-url').then(r => r.json());
-        if (res.authUrl) {
-            window.location.href = res.authUrl;
-        }
-    } catch (err) {
-        showToast('Failed to start Spotify sign-in: ' + err.message, 'error');
-    }
+    return initiateOAuthLogin('spotify');
 }
 
 async function syncSpotifyLibrary() {
@@ -6847,6 +6865,7 @@ window.handleQueueDragOver = handleQueueDragOver;
 window.handleQueueDrop = handleQueueDrop;
 
 // BASA 2.0 Connected Accounts & Autoplay Window Bindings
+window.initiateOAuthLogin = initiateOAuthLogin;
 window.switchSettingsTab = switchSettingsTab;
 window.connectGoogleAccount = connectGoogleAccount;
 window.syncGoogleLibrary = syncGoogleLibrary;
