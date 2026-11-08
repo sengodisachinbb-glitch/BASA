@@ -68,9 +68,9 @@
                     </div>
                 </div>
                 <div class="nav-actions">
-                    <button id="upload-nav-btn" class="nav-button" title="Upload Music">↑ Upload</button>
-                    <button id="pipeline-nav-btn" class="nav-button" title="Audio Pipeline Inspector" onclick="openPipelineInspectorModal()">⚡ Pipeline</button>
-                    <button id="audio-settings-nav-btn" class="nav-button" title="Audio Settings" onclick="openAudioSettingsModal()">⚙ Settings</button>
+                    <button id="upload-nav-btn" class="nav-button" title="Upload Music">Upload</button>
+                    <button id="pipeline-nav-btn" class="nav-button" title="Audio Pipeline Inspector" onclick="openPipelineInspectorModal()">Pipeline</button>
+                    <button id="audio-settings-nav-btn" class="nav-button" title="Audio Settings" onclick="openAudioSettingsModal()">Settings</button>
                     <button id="auth-btn" class="nav-button" title="Sign In">Sign In</button>
                     <div id="user-menu" class="user-menu hidden">
                         <div id="user-avatar" class="user-avatar">U</div>
@@ -151,7 +151,7 @@
                     <section class="content-section" id="recommended-section">
                         <div class="section-header-flex">
                             <div>
-                                <h2 class="section-title" style="margin-bottom: 4px;">🎧 Recommended For You</h2>
+                                <h2 class="section-title" style="margin-bottom: 4px;">Recommended For You</h2>
                                 <p class="section-subtitle" id="recommended-subtitle">Curated from your meaningful listening history</p>
                             </div>
                             <span class="taste-badge" id="taste-detected-badge" style="display:none;">Tamil Taste</span>
@@ -165,7 +165,7 @@
                     <section class="content-section" id="new-releases-section">
                         <div class="section-header-flex">
                             <div>
-                                <h2 class="section-title" style="margin-bottom: 4px;">✨ New Releases in <span id="new-releases-lang-title">Tamil</span></h2>
+                                <h2 class="section-title" style="margin-bottom: 4px;">New Releases in <span id="new-releases-lang-title">Tamil</span></h2>
                                 <p class="section-subtitle" id="new-releases-subtitle">Showing Tamil releases</p>
                             </div>
                             <div class="lang-pills-wrapper" id="lang-pills-container" role="toolbar" aria-label="Filter new releases by language">
@@ -185,18 +185,18 @@
 
                     <!-- 3. TRENDING NOW -->
                     <section class="content-section">
-                        <h2 class="section-title">🔥 Trending Now</h2>
+                        <h2 class="section-title">Trending Now</h2>
                         <div id="charts-grid" class="track-grid"></div>
                     </section>
                     <section class="content-section" id="lossless-section">
                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
-                            <h2 class="section-title" style="margin-bottom: 0;">💎 Hi-Fi &amp; Lossless Audio</h2>
+                            <h2 class="section-title" style="margin-bottom: 0;">Hi-Fi &amp; Lossless Audio</h2>
                             <span class="quality-badge badge-gold" style="font-size: 11px; padding: 4px 10px;">STUDIO MASTER · FLAC / LOSSLESS</span>
                         </div>
                         <div id="lossless-grid" class="track-grid"></div>
                     </section>
                     <section class="content-section">
-                        <h2 class="section-title">⏱ Recently Played</h2>
+                        <h2 class="section-title">Recently Played</h2>
                         <div id="recent-grid" class="track-grid">
                             <p class="empty-state">Your recently played tracks will appear here</p>
                         </div>
@@ -223,7 +223,7 @@
                                 <option value="YTMUSIC">YouTube Music</option>
                                 <option value="LOCAL">Local Files</option>
                             </select>
-                            <button id="search-request-btn" class="button button-secondary" style="font-size:12px; padding:6px 14px;" onclick="openSongRequestModal()">✨ Request Master</button>
+                            <button id="search-request-btn" class="button button-secondary" style="font-size:12px; padding:6px 14px;" onclick="openSongRequestModal()">Request Master</button>
                         </div>
                     </div>
 
@@ -235,14 +235,14 @@
                 <!-- LIBRARY VIEW (Full Multi-Source Hub) -->
                 <div id="view-library" class="view">
                     <div class="library-header-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
-                        <h2 class="section-title" style="margin-bottom: 0;">📚 Your Music Library</h2>
+                        <h2 class="section-title" style="margin-bottom: 0;">Your Music Library</h2>
                         <div class="library-tab-buttons" style="display: flex; gap: 8px; flex-wrap: wrap;">
-                            <button id="lib-tab-liked" class="button button-primary active" style="padding: 6px 14px; font-size: 13px;" onclick="switchLibraryTab('liked')">❤️ Liked</button>
-                            <button id="lib-tab-playlists" class="button button-secondary" style="padding: 6px 14px; font-size: 13px;" onclick="switchLibraryTab('playlists')">🎵 Playlists</button>
-                            <button id="lib-tab-history" class="button button-secondary" style="padding: 6px 14px; font-size: 13px;" onclick="switchLibraryTab('history')">🕒 History</button>
-                            <button id="lib-tab-local" class="button button-secondary" style="padding: 6px 14px; font-size: 13px;" onclick="switchLibraryTab('local')">📁 Local (FLAC/ALAC)</button>
-                            <button id="lib-tab-spotify" class="button button-secondary" style="padding: 6px 14px; font-size: 13px;" onclick="switchLibraryTab('spotify')">🟢 Spotify</button>
-                            <button id="lib-tab-ytmusic" class="button button-secondary" style="padding: 6px 14px; font-size: 13px;" onclick="switchLibraryTab('ytmusic')">▶ YouTube Music</button>
+                            <button id="lib-tab-liked" class="button button-primary active" style="padding: 6px 14px; font-size: 13px;" onclick="switchLibraryTab('liked')">Liked</button>
+                            <button id="lib-tab-playlists" class="button button-secondary" style="padding: 6px 14px; font-size: 13px;" onclick="switchLibraryTab('playlists')">Playlists</button>
+                            <button id="lib-tab-history" class="button button-secondary" style="padding: 6px 14px; font-size: 13px;" onclick="switchLibraryTab('history')">History</button>
+                            <button id="lib-tab-local" class="button button-secondary" style="padding: 6px 14px; font-size: 13px;" onclick="switchLibraryTab('local')">Local Files</button>
+                            <button id="lib-tab-spotify" class="button button-secondary" style="padding: 6px 14px; font-size: 13px;" onclick="switchLibraryTab('spotify')">Spotify</button>
+                            <button id="lib-tab-ytmusic" class="button button-secondary" style="padding: 6px 14px; font-size: 13px;" onclick="switchLibraryTab('ytmusic')">YouTube Music</button>
                         </div>
                     </div>
 
@@ -334,14 +334,16 @@
                 <!-- PLAYLIST DETAIL VIEW -->
                 <div id="view-playlist" class="view">
                     <div class="playlist-detail-header">
-                        <div id="playlist-cover" class="playlist-cover">🎵</div>
+                        <div id="playlist-cover" class="playlist-cover">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+                        </div>
                         <div class="playlist-info">
                             <span class="playlist-label">PLAYLIST</span>
                             <h1 id="playlist-name">Playlist</h1>
                             <p id="playlist-desc" class="playlist-desc"></p>
                             <div class="playlist-meta">
                                 <span id="playlist-track-count">0 tracks</span>
-                                <button id="playlist-play-all" class="button button-primary">▶ Play All</button>
+                                <button id="playlist-play-all" class="button button-primary">Play All</button>
                                 <button id="playlist-delete-btn" class="button button-secondary">Delete</button>
                             </div>
                         </div>
@@ -351,7 +353,7 @@
 
                 <!-- UPLOADS VIEW -->
                 <div id="view-uploads" class="view">
-                    <h2 class="section-title">📁 My Uploads</h2>
+                    <h2 class="section-title">My Uploads</h2>
                     <div id="upload-zone" class="upload-zone glass-subtle">
                         <div class="upload-zone-content">
                             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -366,7 +368,7 @@
                 </div>
                 <!-- MULTI-ROOM SYNC VIEW -->
                 <div id="view-sync" class="view">
-                    <h2 class="section-title">📡 Multi-Room Sync</h2>
+                    <h2 class="section-title">Multi-Room Sync</h2>
                     
                     <div id="sync-setup" class="glass-subtle" style="padding: 24px; border-radius: 12px; margin-bottom: 24px;">
                         <h3>Device Name</h3>
@@ -405,12 +407,12 @@
                 <div id="view-lossless" class="view">
                     <div class="vault-header">
                         <div>
-                            <h2 class="section-title" style="margin-bottom:4px;">💎 Lossless Studio &amp; Hi-Res Audio</h2>
+                            <h2 class="section-title" style="margin-bottom:4px;">Lossless Studio &amp; Hi-Res Audio</h2>
                             <p class="vault-subtitle">Native Lossless &amp; Hi-Res Audio (24-bit / 96 kHz FLAC) · Bit-exact IndexedDB &amp; Local Storage</p>
                             <div class="vault-policy-badge">Studio Master quality enabled · Auto-ranked by verified sample rate &amp; bit-depth.</div>
                         </div>
                         <div class="vault-header-actions">
-                            <button class="button button-primary" onclick="loadLosslessLibrary()">↻ Refresh Library</button>
+                            <button class="button button-primary" onclick="loadLosslessLibrary()">Refresh Library</button>
                         </div>
                     </div>
 
@@ -425,7 +427,7 @@
                             </div>
                             <div style="display:flex;gap:8px;">
                                 <input type="text" id="lossless-library-search" placeholder="Search verified tracks..." class="form-input" style="font-size:12px; padding:4px 10px; width:180px;" oninput="filterLosslessLibrary(this.value)">
-                                <button class="button button-secondary" style="font-size:12px; padding:4px 10px;" onclick="loadLosslessLibrary()">↻ Refresh</button>
+                                <button class="button button-secondary" style="font-size:12px; padding:4px 10px;" onclick="loadLosslessLibrary()">Refresh</button>
                             </div>
                         </div>
                         <!-- Filter Pills -->
@@ -446,15 +448,15 @@
                 <div id="view-explore" class="view">
                     <div class="explore-hero-banner" style="background: linear-gradient(135deg, rgba(74, 222, 128, 0.15) 0%, rgba(56, 189, 248, 0.15) 100%); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 28px; margin-bottom: 28px; position: relative; overflow: hidden;">
                         <div style="max-width: 650px; position: relative; z-index: 2;">
-                            <span class="taste-badge" style="background: rgba(74,222,128,0.2); color: #4ade80; border-color: rgba(74,222,128,0.4); margin-bottom: 10px; display: inline-block;">✨ Curated Discovery</span>
+                            <span class="taste-badge" style="background: rgba(74,222,128,0.2); color: #4ade80; border-color: rgba(74,222,128,0.4); margin-bottom: 10px; display: inline-block;">Curated Discovery</span>
                             <h1 style="font-size: 28px; font-weight: 800; margin: 8px 0 10px; letter-spacing: -0.02em;">Explore Sounds, Moods &amp; Horizons</h1>
                             <p style="color: var(--text-secondary); font-size: 14px; line-height: 1.5; margin-bottom: 16px;">
                                 Explore trending charts, viral club hits, soothing midnight acoustics, and genre stations curated by BASA AI.
                             </p>
                             <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                                <button class="button button-primary" onclick="exploreMoodStation('Tamil Hits')">▶ Play Trending Radio</button>
-                                <button class="button button-secondary" onclick="exploreMoodStation('Chill Lofi')">☕ Chill Vibe</button>
-                                <button class="button button-secondary" onclick="exploreMoodStation('Workout Energy')">⚡ High Energy</button>
+                                <button class="button button-primary" onclick="exploreMoodStation('Tamil Hits')">Play Trending Radio</button>
+                                <button class="button button-secondary" onclick="exploreMoodStation('Chill Lofi')">Chill Vibe</button>
+                                <button class="button button-secondary" onclick="exploreMoodStation('Workout Energy')">High Energy</button>
                             </div>
                         </div>
                     </div>
@@ -462,59 +464,49 @@
                     <!-- Moods & Genres Grid -->
                     <section class="content-section">
                         <div class="section-header-flex">
-                            <h2 class="section-title">🎨 Moods &amp; Genres</h2>
+                            <h2 class="section-title">Moods &amp; Genres</h2>
                             <span style="font-size: 12px; color: var(--text-secondary);">Select a vibe to start station</span>
                         </div>
                         <div class="explore-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; margin-top: 14px;">
                             <div class="genre-card" onclick="exploreMoodStation('Tamil Melody')" style="background: linear-gradient(135deg, #1e3a8a, #3b82f6); border-radius: 14px; padding: 20px; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; position: relative; min-height: 110px; overflow: hidden;">
                                 <h3 style="font-size: 17px; font-weight: 700; color: #fff;">Tamil Melodies</h3>
                                 <p style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px;">Evergreen soulful tunes</p>
-                                <span style="position: absolute; right: 12px; bottom: 8px; font-size: 28px; opacity: 0.85;">🎶</span>
                             </div>
                             <div class="genre-card" onclick="exploreMoodStation('Kuthu Party')" style="background: linear-gradient(135deg, #991b1b, #ef4444); border-radius: 14px; padding: 20px; cursor: pointer; transition: transform 0.2s; position: relative; min-height: 110px; overflow: hidden;">
                                 <h3 style="font-size: 17px; font-weight: 700; color: #fff;">Fast &amp; Kuthu</h3>
                                 <p style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px;">Bass-heavy celebration</p>
-                                <span style="position: absolute; right: 12px; bottom: 8px; font-size: 28px; opacity: 0.85;">🔥</span>
                             </div>
                             <div class="genre-card" onclick="exploreMoodStation('Romantic Love')" style="background: linear-gradient(135deg, #831843, #ec4899); border-radius: 14px; padding: 20px; cursor: pointer; transition: transform 0.2s; position: relative; min-height: 110px; overflow: hidden;">
                                 <h3 style="font-size: 17px; font-weight: 700; color: #fff;">Romantic Love</h3>
                                 <p style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px;">Sweet melodies &amp; lyrics</p>
-                                <span style="position: absolute; right: 12px; bottom: 8px; font-size: 28px; opacity: 0.85;">💖</span>
                             </div>
                             <div class="genre-card" onclick="exploreMoodStation('Chill Lofi Study')" style="background: linear-gradient(135deg, #134e4a, #14b8a6); border-radius: 14px; padding: 20px; cursor: pointer; transition: transform 0.2s; position: relative; min-height: 110px; overflow: hidden;">
                                 <h3 style="font-size: 17px; font-weight: 700; color: #fff;">Lo-Fi &amp; Focus</h3>
                                 <p style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px;">Deep work &amp; calm</p>
-                                <span style="position: absolute; right: 12px; bottom: 8px; font-size: 28px; opacity: 0.85;">☕</span>
                             </div>
                             <div class="genre-card" onclick="exploreMoodStation('Workout Gym Energy')" style="background: linear-gradient(135deg, #7c2d12, #f97316); border-radius: 14px; padding: 20px; cursor: pointer; transition: transform 0.2s; position: relative; min-height: 110px; overflow: hidden;">
                                 <h3 style="font-size: 17px; font-weight: 700; color: #fff;">Workout Pump</h3>
                                 <p style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px;">High-BPM adrenaline</p>
-                                <span style="position: absolute; right: 12px; bottom: 8px; font-size: 28px; opacity: 0.85;">⚡</span>
                             </div>
                             <div class="genre-card" onclick="exploreMoodStation('90s Evergreen Tamil')" style="background: linear-gradient(135deg, #581c87, #a855f7); border-radius: 14px; padding: 20px; cursor: pointer; transition: transform 0.2s; position: relative; min-height: 110px; overflow: hidden;">
                                 <h3 style="font-size: 17px; font-weight: 700; color: #fff;">90s Nostalgia</h3>
                                 <p style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px;">Golden classics &amp; retro</p>
-                                <span style="position: absolute; right: 12px; bottom: 8px; font-size: 28px; opacity: 0.85;">📻</span>
                             </div>
                             <div class="genre-card" onclick="exploreMoodStation('Devotional Peace')" style="background: linear-gradient(135deg, #713f12, #eab308); border-radius: 14px; padding: 20px; cursor: pointer; transition: transform 0.2s; position: relative; min-height: 110px; overflow: hidden;">
                                 <h3 style="font-size: 17px; font-weight: 700; color: #fff;">Spiritual &amp; Peace</h3>
                                 <p style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px;">Inner harmony chants</p>
-                                <span style="position: absolute; right: 12px; bottom: 8px; font-size: 28px; opacity: 0.85;">🕉️</span>
                             </div>
                             <div class="genre-card" onclick="exploreMoodStation('Indie Acoustic')" style="background: linear-gradient(135deg, #14532d, #22c55e); border-radius: 14px; padding: 20px; cursor: pointer; transition: transform 0.2s; position: relative; min-height: 110px; overflow: hidden;">
                                 <h3 style="font-size: 17px; font-weight: 700; color: #fff;">Indie &amp; Acoustic</h3>
                                 <p style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px;">Guitar, raw vocals</p>
-                                <span style="position: absolute; right: 12px; bottom: 8px; font-size: 28px; opacity: 0.85;">🎸</span>
                             </div>
                             <div class="genre-card" onclick="exploreMoodStation('Hip Hop Rap')" style="background: linear-gradient(135deg, #0f172a, #475569); border-radius: 14px; padding: 20px; cursor: pointer; transition: transform 0.2s; position: relative; min-height: 110px; overflow: hidden;">
                                 <h3 style="font-size: 17px; font-weight: 700; color: #fff;">Hip-Hop &amp; Bars</h3>
                                 <p style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px;">808 beats &amp; flows</p>
-                                <span style="position: absolute; right: 12px; bottom: 8px; font-size: 28px; opacity: 0.85;">🎤</span>
                             </div>
                             <div class="genre-card" onclick="exploreMoodStation('Late Night Drive Melancholy')" style="background: linear-gradient(135deg, #312e81, #6366f1); border-radius: 14px; padding: 20px; cursor: pointer; transition: transform 0.2s; position: relative; min-height: 110px; overflow: hidden;">
                                 <h3 style="font-size: 17px; font-weight: 700; color: #fff;">Night Drive</h3>
                                 <p style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px;">Synthwave &amp; midnight vibes</p>
-                                <span style="position: absolute; right: 12px; bottom: 8px; font-size: 28px; opacity: 0.85;">🚗</span>
                             </div>
                         </div>
                     </section>
@@ -523,7 +515,7 @@
                     <section class="content-section" style="margin-top: 32px;">
                         <div class="section-header-flex">
                             <div>
-                                <h2 class="section-title">📈 Trending Now</h2>
+                                <h2 class="section-title">Trending Now</h2>
                                 <p class="section-subtitle">Most played tracks across the network</p>
                             </div>
                             <button class="button button-secondary" onclick="loadExploreTrending()">↻ Refresh</button>
@@ -538,35 +530,31 @@
                 <div id="view-replay" class="view">
                     <div class="replay-header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
                         <div>
-                            <span class="taste-badge" style="background: rgba(168,85,247,0.2); color: #c084fc; border-color: rgba(168,85,247,0.4); margin-bottom: 8px; display: inline-block;">✨ Sound Capsule</span>
+                            <span class="taste-badge" style="background: rgba(168,85,247,0.2); color: #c084fc; border-color: rgba(168,85,247,0.4); margin-bottom: 8px; display: inline-block;">Sound Capsule</span>
                             <h1 style="font-size: 28px; font-weight: 800; margin: 4px 0 6px; letter-spacing: -0.02em;">BASA Replay &amp; Analytics</h1>
                             <p style="color: var(--text-secondary); font-size: 14px;">Your listening statistics, top songs, and shareable sound summary.</p>
                         </div>
                         <div style="display: flex; gap: 10px;">
-                            <button class="button button-primary" onclick="generateReplayPoster()">🎨 Generate Story Card</button>
-                            <button class="button button-secondary" onclick="loadReplayView()">↻ Refresh Stats</button>
+                            <button class="button button-primary" onclick="generateReplayPoster()">Generate Story Card</button>
+                            <button class="button button-secondary" onclick="loadReplayView()">Refresh Stats</button>
                         </div>
                     </div>
 
                     <!-- Metrics Stats Grid -->
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 28px;">
                         <div class="glass-standard" style="padding: 20px; border-radius: 14px; text-align: center;">
-                            <span style="font-size: 28px; display: block; margin-bottom: 6px;">⏱️</span>
                             <div id="replay-stat-minutes" style="font-size: 26px; font-weight: 800; color: #4ade80;">0</div>
                             <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.05em;">Minutes Listened</div>
                         </div>
                         <div class="glass-standard" style="padding: 20px; border-radius: 14px; text-align: center;">
-                            <span style="font-size: 28px; display: block; margin-bottom: 6px;">🎵</span>
                             <div id="replay-stat-songs" style="font-size: 26px; font-weight: 800; color: #38bdf8;">0</div>
                             <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.05em;">Songs Played</div>
                         </div>
                         <div class="glass-standard" style="padding: 20px; border-radius: 14px; text-align: center;">
-                            <span style="font-size: 28px; display: block; margin-bottom: 6px;">👑</span>
                             <div id="replay-stat-artist" style="font-size: 20px; font-weight: 800; color: #f472b6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">-</div>
                             <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.05em;">Top Artist</div>
                         </div>
                         <div class="glass-standard" style="padding: 20px; border-radius: 14px; text-align: center;">
-                            <span style="font-size: 28px; display: block; margin-bottom: 6px;">🎧</span>
                             <div id="replay-stat-genre" style="font-size: 20px; font-weight: 800; color: #fbbf24;">Melody</div>
                             <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.05em;">Dominant Vibe</div>
                         </div>
@@ -576,7 +564,7 @@
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px;">
                         <div class="glass-standard" style="padding: 20px; border-radius: 16px;">
                             <h3 style="font-size: 18px; font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 8px;">
-                                🏆 Top Tracks
+                                Top Tracks
                             </h3>
                             <div id="replay-top-tracks-list" class="track-list" style="display: block;">
                                 <div style="color: var(--text-secondary); font-size: 13px; padding: 12px 0;">Play songs to generate your Replay rankings!</div>
@@ -585,7 +573,7 @@
 
                         <div class="glass-standard" style="padding: 20px; border-radius: 16px;">
                             <h3 style="font-size: 18px; font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 8px;">
-                                🎤 Top Artists
+                                Top Artists
                             </h3>
                             <div id="replay-top-artists-list" style="display: flex; flex-direction: column; gap: 10px;">
                                 <div style="color: var(--text-secondary); font-size: 13px; padding: 12px 0;">Your most frequented artists will rank here.</div>
@@ -596,11 +584,11 @@
                     <!-- Story Poster Canvas Preview Modal / Card -->
                     <div id="replay-poster-container" class="glass-standard" style="margin-top: 28px; padding: 24px; border-radius: 16px; display: none;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                            <h3 style="font-size: 18px; font-weight: 700;">📸 Your BASA Replay Story Card</h3>
+                            <h3 style="font-size: 18px; font-weight: 700;">Your BASA Replay Story Card</h3>
                             <div style="display: flex; gap: 10px;">
-                                <button class="button button-primary" onclick="downloadReplayPoster()">⬇ Download Image</button>
-                                <button class="button button-secondary" onclick="shareReplayPoster()">🔗 Share</button>
-                                <button class="button button-secondary" onclick="document.getElementById('replay-poster-container').style.display='none'">✕ Close</button>
+                                <button class="button button-primary" onclick="downloadReplayPoster()">Download Image</button>
+                                <button class="button button-secondary" onclick="shareReplayPoster()">Share</button>
+                                <button class="button button-secondary" onclick="document.getElementById('replay-poster-container').style.display='none'">Close</button>
                             </div>
                         </div>
                         <div style="display: flex; justify-content: center; background: rgba(0,0,0,0.4); padding: 20px; border-radius: 12px; overflow-x: auto;">
@@ -613,13 +601,13 @@
                 <div id="view-equalizer" class="view">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
                         <div>
-                            <span class="taste-badge" style="background: rgba(56,189,248,0.2); color: #38bdf8; border-color: rgba(56,189,248,0.4); margin-bottom: 6px; display: inline-block;">🎛️ Float32 Web Audio DSP</span>
+                            <span class="taste-badge" style="background: rgba(56,189,248,0.2); color: #38bdf8; border-color: rgba(56,189,248,0.4); margin-bottom: 6px; display: inline-block;">Float32 Web Audio DSP</span>
                             <h1 style="font-size: 26px; font-weight: 800; margin: 4px 0 6px; letter-spacing: -0.02em;">10-Band Graphic Equalizer</h1>
                             <p style="color: var(--text-secondary); font-size: 13px;">Studio-grade biquad filtering with active response curve visualizer and True Peak limiter.</p>
                         </div>
                         <div style="display: flex; gap: 10px;">
                             <button type="button" class="button button-secondary" onclick="resetEqualizerCurve()">Reset (Flat)</button>
-                            <button type="button" class="button button-primary" onclick="openPipelineInspectorModal()">⚡ Pipeline Inspector</button>
+                            <button type="button" class="button button-primary" onclick="openPipelineInspectorModal()">Pipeline Inspector</button>
                         </div>
                     </div>
 
@@ -715,7 +703,7 @@
                 <!-- SOURCES & QUALITY VIEW -->
                 <div id="view-sources" class="view">
                     <div style="margin-bottom: 24px;">
-                        <span class="taste-badge" style="background: rgba(234,179,8,0.2); color: #facc15; border-color: rgba(234,179,8,0.4); margin-bottom: 6px; display: inline-block;">🔌 Streaming Engine &amp; Providers</span>
+                        <span class="taste-badge" style="background: rgba(234,179,8,0.2); color: #facc15; border-color: rgba(234,179,8,0.4); margin-bottom: 6px; display: inline-block;">Streaming Engine &amp; Providers</span>
                         <h1 style="font-size: 26px; font-weight: 800; margin: 4px 0 6px; letter-spacing: -0.02em;">Streaming Providers &amp; Addons</h1>
                         <p style="color: var(--text-secondary); font-size: 13px;">Manage streaming decoders, source prioritization, and preferred bitrates.</p>
                     </div>
@@ -883,7 +871,12 @@
                         <line x1="15" y1="3" x2="15" y2="21"/>
                     </svg>
                 </button>
-                <button id="volume-btn" class="player-ctrl-btn" title="Volume">🔊</button>
+                <button id="volume-btn" class="player-ctrl-btn" title="Volume" aria-label="Volume">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                    </svg>
+                </button>
                 <div class="volume-bar-wrapper">
                     <input type="range" id="volume-bar" class="volume-bar" min="0" max="100" value="80" step="1">
                     <div id="volume-fill" class="volume-fill" style="width:80%"></div>
@@ -1197,22 +1190,19 @@
                     </p>
                 </div>
                 <div class="pwa-instructions-list" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
-                    <div style="display: flex; gap: 12px; align-items: center; background: rgba(255,255,255,0.06); padding: 12px 14px; border-radius: 8px;">
-                        <span style="font-size: 20px;">💻</span>
+                    <div style="background: rgba(255,255,255,0.06); padding: 12px 14px; border-radius: 8px;">
                         <div style="font-size: 12.5px; line-height: 1.4;">
                             <strong>Chrome / Edge (PC &amp; Mac):</strong><br>
                             Click the <strong>Install</strong> icon in the address bar (or click the button below).
                         </div>
                     </div>
-                    <div style="display: flex; gap: 12px; align-items: center; background: rgba(255,255,255,0.06); padding: 12px 14px; border-radius: 8px;">
-                        <span style="font-size: 20px;">📱</span>
+                    <div style="background: rgba(255,255,255,0.06); padding: 12px 14px; border-radius: 8px;">
                         <div style="font-size: 12.5px; line-height: 1.4;">
                             <strong>iPhone / iPad Safari:</strong><br>
-                            Tap the <strong>Share</strong> button <span style="font-size:14px;">📤</span> then select <strong>"Add to Home Screen"</strong>.
+                            Tap the <strong>Share</strong> button then select <strong>"Add to Home Screen"</strong>.
                         </div>
                     </div>
-                    <div style="display: flex; gap: 12px; align-items: center; background: rgba(255,255,255,0.06); padding: 12px 14px; border-radius: 8px;">
-                        <span style="font-size: 20px;">🤖</span>
+                    <div style="background: rgba(255,255,255,0.06); padding: 12px 14px; border-radius: 8px;">
                         <div style="font-size: 12.5px; line-height: 1.4;">
                             <strong>Android:</strong><br>
                             Tap the menu (⋮) and select <strong>"Install app"</strong> or <strong>"Add to Home screen"</strong>.
@@ -1353,14 +1343,14 @@
         <div id="audio-settings-modal" class="modal-overlay hidden">
             <div class="modal glass-floating" style="max-width: 600px; max-height: 88vh; overflow-y: auto;">
                 <button class="modal-close" onclick="closeAudioSettingsModal()">✕</button>
-                <h2>⚙ Settings &amp; Connected Accounts</h2>
+                <h2>Settings &amp; Connected Accounts</h2>
 
                 <!-- Settings Navigation Tabs -->
                 <div class="settings-tabs-bar" style="display: flex; gap: 6px; margin: 16px 0 16px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 8px; overflow-x: auto;">
-                    <button type="button" class="button button-secondary settings-tab-btn active" id="tab-btn-dsp" onclick="switchSettingsTab('dsp')" style="font-size: 12px; padding: 6px 12px;">⚙ Audio &amp; DSP</button>
-                    <button type="button" class="button button-secondary settings-tab-btn" id="tab-btn-accounts" onclick="switchSettingsTab('accounts')" style="font-size: 12px; padding: 6px 12px;">🔗 Connected Accounts</button>
-                    <button type="button" class="button button-secondary settings-tab-btn" id="tab-btn-taste" onclick="switchSettingsTab('taste')" style="font-size: 12px; padding: 6px 12px;">🧬 Taste &amp; Autoplay</button>
-                    <button type="button" class="button button-secondary settings-tab-btn" id="tab-btn-library" onclick="switchSettingsTab('library')" style="font-size: 12px; padding: 6px 12px;">📚 Unified Library</button>
+                    <button type="button" class="button button-secondary settings-tab-btn active" id="tab-btn-dsp" onclick="switchSettingsTab('dsp')" style="font-size: 12px; padding: 6px 12px;">Audio &amp; DSP</button>
+                    <button type="button" class="button button-secondary settings-tab-btn" id="tab-btn-accounts" onclick="switchSettingsTab('accounts')" style="font-size: 12px; padding: 6px 12px;">Connected Accounts</button>
+                    <button type="button" class="button button-secondary settings-tab-btn" id="tab-btn-taste" onclick="switchSettingsTab('taste')" style="font-size: 12px; padding: 6px 12px;">Taste &amp; Autoplay</button>
+                    <button type="button" class="button button-secondary settings-tab-btn" id="tab-btn-library" onclick="switchSettingsTab('library')" style="font-size: 12px; padding: 6px 12px;">Unified Library</button>
                 </div>
 
                 <!-- TAB 1: AUDIO DSP & PLAYBACK -->
@@ -1409,7 +1399,7 @@
                     <!-- 10-BAND GRAPHICAL PARAMETRIC EQUALIZER -->
                     <div class="eq-container">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                            <label style="font-weight: 700; font-size: 14px; letter-spacing:0.02em;">🎛 10-Band Parametric Equalizer</label>
+                            <label style="font-weight: 700; font-size: 14px; letter-spacing:0.02em;">10-Band Parametric Equalizer</label>
                             <button type="button" class="button button-secondary" style="font-size:11px; padding:4px 10px;" onclick="resetEqualizerCurve()">Reset (Flat)</button>
                         </div>
 
@@ -1618,8 +1608,8 @@
                         </div>
                         <!-- Secondary Actions: Sync & Takeout -->
                         <div id="google-sync-controls" style="display: none; gap: 8px; flex-wrap: wrap; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 10px;">
-                            <button type="button" class="button button-secondary" onclick="syncGoogleLibrary()" style="font-size: 11px; padding: 4px 10px;">🔄 Sync Playlists &amp; Likes</button>
-                            <button type="button" class="button button-secondary" onclick="toggleTakeoutModal()" style="font-size: 11px; padding: 4px 10px;">📁 Import Google Takeout History</button>
+                            <button type="button" class="button button-secondary" onclick="syncGoogleLibrary()" style="font-size: 11px; padding: 4px 10px;">Sync Playlists &amp; Likes</button>
+                            <button type="button" class="button button-secondary" onclick="toggleTakeoutModal()" style="font-size: 11px; padding: 4px 10px;">Import Google Takeout History</button>
                             <button type="button" class="button button-secondary" onclick="disconnectGoogleAccount()" style="font-size: 11px; padding: 4px 10px; color: #ef4444; border-color: rgba(239,68,68,0.3);">Disconnect &amp; Revoke</button>
                         </div>
                     </div>
@@ -1642,17 +1632,17 @@
                             Import saved tracks, playlists, and top items to your provider-linked BASA library.
                         </div>
                         <div style="padding: 8px 12px; background: rgba(29, 185, 84, 0.08); border: 1px solid rgba(29, 185, 84, 0.2); border-radius: 6px; font-size: 11px; color: #a7f3d0; margin-bottom: 10px;">
-                            🛡 <strong>Spotify Developer Policy:</strong> Spotify library data is treated as an isolated, provider-linked library feature. It is strictly never used to construct user taste profiles or train recommendation models.
+                            <strong>Spotify Developer Policy:</strong> Spotify library data is treated as an isolated, provider-linked library feature. It is strictly never used to construct user taste profiles or train recommendation models.
                         </div>
                         <div id="spotify-sync-controls" style="display: none; gap: 8px; flex-wrap: wrap; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 10px;">
-                            <button type="button" class="button button-secondary" onclick="syncSpotifyLibrary()" style="font-size: 11px; padding: 4px 10px;">🔄 Sync Saved Tracks &amp; Playlists</button>
+                            <button type="button" class="button button-secondary" onclick="syncSpotifyLibrary()" style="font-size: 11px; padding: 4px 10px;">Sync Saved Tracks &amp; Playlists</button>
                             <button type="button" class="button button-secondary" onclick="disconnectSpotifyAccount()" style="font-size: 11px; padding: 4px 10px; color: #ef4444; border-color: rgba(239,68,68,0.3);">Disconnect</button>
                         </div>
                     </div>
 
                     <!-- Google Takeout Upload Box -->
                     <div id="takeout-import-panel" style="display: none; padding: 14px; background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.15); border-radius: 8px;">
-                        <div style="font-weight: 600; font-size: 13px; margin-bottom: 4px;">📂 Google Takeout History Import</div>
+                        <div style="font-weight: 600; font-size: 13px; margin-bottom: 4px;">Google Takeout History Import</div>
                         <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 10px;">
                             Since official YouTube Data API does not expose full YouTube Music listening history, you can upload your Google Takeout <code style="color:var(--accent-bright);">watch-history.json</code> or CSV here to import your complete listening logs.
                         </div>
@@ -1665,7 +1655,7 @@
                 <div id="settings-tab-view-taste" class="settings-tab-view hidden" style="display: flex; flex-direction: column; gap: 14px;">
                     <div style="padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                            <span style="font-weight: 700; font-size: 14px;">🧠 Dynamic Taste Profile</span>
+                            <span style="font-weight: 700; font-size: 14px;">Dynamic Taste Profile</span>
                             <span style="font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(147,51,234,0.2); color: #c084fc; font-weight: 600;">7-Day Half-Life Decay</span>
                         </div>
                         <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 12px;">
@@ -1698,7 +1688,7 @@
 
                     <!-- Autoplay Preferences -->
                     <div style="padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px;">
-                        <span style="font-weight: 700; font-size: 14px; display: block; margin-bottom: 6px;">🎵 Autoplay Engine Settings</span>
+                        <span style="font-weight: 700; font-size: 14px; display: block; margin-bottom: 6px;">Autoplay Engine Settings</span>
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                             <div>
                                 <div style="font-weight: 600; font-size: 13px;">Enable Intelligent Autoplay</div>
@@ -1725,7 +1715,7 @@
                 <!-- TAB 4: UNIFIED MUSIC LIBRARY -->
                 <div id="settings-tab-view-library" class="settings-tab-view hidden" style="display: flex; flex-direction: column; gap: 14px;">
                     <div style="padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px;">
-                        <span style="font-weight: 700; font-size: 14px; display: block; margin-bottom: 6px;">📚 Unified Library Overview</span>
+                        <span style="font-weight: 700; font-size: 14px; display: block; margin-bottom: 6px;">Unified Library Overview</span>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12px; margin-bottom: 12px;">
                             <div style="padding: 8px; background: rgba(0,0,0,0.25); border-radius: 6px;">
                                 <div style="color: var(--text-tertiary); font-size: 10px; text-transform: uppercase;">Imported Playlists</div>
@@ -1737,7 +1727,7 @@
                             </div>
                         </div>
                         <div style="display: flex; gap: 8px;">
-                            <button type="button" class="button button-secondary" onclick="scanLibraryDuplicates()" style="font-size: 11px; padding: 4px 10px;">🔍 Scan For Duplicate Tracks</button>
+                            <button type="button" class="button button-secondary" onclick="scanLibraryDuplicates()" style="font-size: 11px; padding: 4px 10px;">Scan For Duplicate Tracks</button>
                         </div>
                     </div>
 
@@ -1756,7 +1746,7 @@
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                     <div>
                         <h2 style="font-size: 18px; margin: 0; display: flex; align-items: center; gap: 8px;">
-                            ⚡ Audio Pipeline Inspector
+                            Audio Pipeline Inspector
                             <span id="pipeline-truth-badge" class="source-badge high" style="font-size: 11px; padding: 2px 8px;">SOURCE: HIGH</span>
                         </h2>
                         <div style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">
