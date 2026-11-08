@@ -1830,7 +1830,7 @@ function renderTrackCard(track, source = 'youtube', index = -1, contextType = ''
 
     const coverHtml = trackObj.cover
         ? `<img src="${trackObj.cover}" alt="${trackObj.title}" loading="lazy" onerror="this.style.display='none'">`
-        : `<div style="width:100%;height:100%;display:grid;place-items:center;font-size:32px;opacity:0.2">🎵</div>`;
+        : `<div style="width:100%;height:100%;display:grid;place-items:center;opacity:0.25;"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>`;
 
     const clickCall = index >= 0 && contextType
         ? `playTrackFromData('${encoded}', '${contextType}', ${index})`
@@ -1887,7 +1887,7 @@ function renderQualityBadge(track) {
     // Check if track is actively resolving or preparing upgrade
     if (track.upgradeStatus === 'resolving' || currentState === 'RESOLVING_LOSSLESS' ||
         (isCurrent && window.playbackManager.pendingUpgradeCandidate)) {
-        return `<div class="quality-badge badge-resolving" title="Resolving higher quality audio stream in background..."><span class="badge-icon">⚡</span><span class="badge-title">Resolving Hi-Res...</span></div>`;
+        return `<div class="quality-badge badge-resolving" title="Resolving higher quality audio stream in background..."><span class="badge-icon">✦</span><span class="badge-title">Resolving Hi-Res...</span></div>`;
     }
 
     const fmtLower = String(track.codec || track.format || '').toLowerCase();
@@ -1930,13 +1930,13 @@ function renderPlayerQualityBadge(track) {
 
     // 1. Actively Upgrading State (Seamless crossfade in progress)
     if (track.upgradeStatus === 'buffering' || currentState === 'PREPARING_UPGRADE' || currentState === 'UPGRADING') {
-        return `<div class="quality-badge badge-resolving" onclick="openPipelineInspectorModal()" style="cursor:pointer;" title="Buffering studio lossless stream for seamless handoff... Click to inspect audio signal path"><span class="badge-icon">⏳</span><span class="badge-title">UPGRADING</span><span class="badge-sep">·</span><span class="badge-meta">TO FLAC</span></div>`;
+        return `<div class="quality-badge badge-resolving" onclick="openPipelineInspectorModal()" style="cursor:pointer;" title="Buffering studio lossless stream for seamless handoff... Click to inspect audio signal path"><span class="badge-icon">✦</span><span class="badge-title">UPGRADING</span><span class="badge-sep">·</span><span class="badge-meta">TO FLAC</span></div>`;
     }
 
     // 2. Actively Resolving Hi-Res / Lossless in Background
     if (track.upgradeStatus === 'resolving' || currentState === 'RESOLVING_LOSSLESS' ||
         (isCurrent && window.playbackManager && window.playbackManager.pendingUpgradeCandidate)) {
-        return `<div class="quality-badge badge-resolving" onclick="openPipelineInspectorModal()" style="cursor:pointer;" title="Resolving studio lossless stream in background... Click to inspect audio signal path"><span class="badge-icon">⚡</span><span class="badge-title">RESOLVING</span><span class="badge-sep">·</span><span class="badge-meta">HI-RES</span></div>`;
+        return `<div class="quality-badge badge-resolving" onclick="openPipelineInspectorModal()" style="cursor:pointer;" title="Resolving studio lossless stream in background... Click to inspect audio signal path"><span class="badge-icon">✦</span><span class="badge-title">RESOLVING</span><span class="badge-sep">·</span><span class="badge-meta">HI-RES</span></div>`;
     }
 
     const fmtLower = String(track.codec || track.format || '').toLowerCase();
@@ -2002,7 +2002,7 @@ function renderTrackListItem(track, index, source, options = {}) {
         <button class="track-action-btn" onclick="event.stopPropagation();showAddToPlaylist(event,'${trackObj.id}','${trackObj.source}','${encoded}')" title="Add to playlist">+</button>
     `;
     if (options.isUpload) {
-        actions += `<button class="track-action-btn" onclick="event.stopPropagation();deleteUpload('${trackObj.id}')" title="Delete">🗑</button>`;
+        actions += `<button class="track-action-btn" onclick="event.stopPropagation();deleteUpload('${trackObj.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>`;
     }
     if (options.playlistEntryId) {
         actions += `<button class="track-action-btn" onclick="event.stopPropagation();removeFromPlaylist('${options.playlistId}','${options.playlistEntryId}')" title="Remove">✕</button>`;
@@ -2013,7 +2013,7 @@ function renderTrackListItem(track, index, source, options = {}) {
     if (trackObj.availableSources && trackObj.availableSources.length > 1) {
         const chips = trackObj.availableSources.map(s => {
             const label = s.source === 'youtube' ? 'YouTube' : (s.source === 'jiosaavn' ? 'JioSaavn HD' : (s.isHiRes ? 'Hi-Res' : 'FLAC'));
-            const icon = s.isHiRes ? '💎' : (s.isLossless ? '✦' : '▶');
+            const icon = s.isHiRes ? '✦' : (s.isLossless ? '✦' : '▶');
             return `<span class="source-chip" title="${escapeHtml(s.title)} (${s.quality || 'Audio'})" onclick="event.stopPropagation();openCandidateSourcesModal('${encoded}')">${icon} ${label}</span>`;
         }).join('');
         sourcesChipsHtml = `<div class="sources-chips-row" style="display:inline-flex; margin-left:8px;">${chips}</div>`;
@@ -2818,7 +2818,7 @@ function toggleAutoPlay(enabled) {
     }
     updateQueueBadge();
     renderQueueDrawer();
-    showToast(state.autoplayEnabled ? '⚡ AutoPlay enabled (endless radio)' : '⚡ AutoPlay paused', 'info');
+    showToast(state.autoplayEnabled ? 'Autoplay enabled (endless radio)' : 'Autoplay paused', 'info');
 }
 
 function updateQueueBadge() {
@@ -3024,7 +3024,7 @@ function renderQueueDrawer() {
 
             contentHtml += `
                 <div class="queue-section-subhead queue-subhead-user" style="display:flex; justify-content:space-between; align-items:center;">
-                    <span>📌 PLAYING NEXT (${userItems.length})</span>
+                    <span>PLAYING NEXT (${userItems.length})</span>
                     <div style="display:flex; gap:6px;">
                         ${hasUndo ? '<button class="queue-mini-clear-btn" style="color:#38ef7d;border-color:rgba(56,239,125,0.4);" onclick="undoQueueAction()" title="Undo last remove/clear">Undo</button>' : ''}
                         <button class="queue-mini-clear-btn" onclick="clearUserQueue()" title="Clear manual user queue">Clear</button>
@@ -3071,7 +3071,7 @@ function renderQueueDrawer() {
 
             contentHtml += `
                 <div class="queue-section-subhead queue-subhead-context">
-                    <span>💿 NEXT FROM ${escapeHtml(state.contextName || 'CURRENT CONTEXT')} (${contextUpcoming.length})</span>
+                    <span>NEXT FROM ${escapeHtml(state.contextName || 'CURRENT CONTEXT')} (${contextUpcoming.length})</span>
                 </div>
                 ${contextItemsHtml}
             `;
@@ -3086,7 +3086,7 @@ function renderQueueDrawer() {
             const recItemsHtml = autoItems.map((track, rIdx) => {
                 const cover = track.coverUrl || track.cover || '';
                 const reason = track.recommendationReason || track.reason || (track.mood ? `Vibe · ${track.mood}` : 'Musical continuity');
-                const aiBadge = track.aiCurated ? '<span class="queue-ai-badge" style="display:inline-flex; align-items:center; background:linear-gradient(135deg, rgba(147,51,234,0.3), rgba(59,130,246,0.3)); border:1px solid rgba(147,51,234,0.4); border-radius:4px; font-size:9px; font-weight:700; color:#c084fc; padding:1px 5px; margin-left:6px;">✨ AI DJ</span>' : '';
+                const aiBadge = track.aiCurated ? '<span class="queue-ai-badge" style="display:inline-flex; align-items:center; background:linear-gradient(135deg, rgba(147,51,234,0.3), rgba(59,130,246,0.3)); border:1px solid rgba(147,51,234,0.4); border-radius:4px; font-size:9px; font-weight:700; color:#c084fc; padding:1px 5px; margin-left:6px;">AI DJ</span>' : '';
                 const entryId = track.queueItemId || track.queueEntryId || `a_${rIdx}`;
                 const encoded = encodeURIComponent(JSON.stringify(track));
                 return `
@@ -3114,7 +3114,7 @@ function renderQueueDrawer() {
             contentHtml += `
                 <div class="queue-section-subhead queue-subhead-autoplay" style="display:flex; justify-content:space-between; align-items:center;">
                     <div style="display:flex; align-items:center; gap:6px;">
-                        <span>✨ AUTOPLAY · SIMILAR SONGS</span>
+                        <span>AUTOPLAY · SIMILAR SONGS</span>
                         <span class="queue-autoplay-pill">Radio</span>
                     </div>
                     <div style="display:flex; align-items:center; gap:8px;">
@@ -3130,14 +3130,14 @@ function renderQueueDrawer() {
             if (state.isFetchingRecommendations) {
                 upnextContainer.innerHTML = `
                     <div class="queue-empty-state">
-                        <div class="queue-empty-icon">⏳</div>
+                        <div class="queue-empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
                         <p>Curating songs for your vibe...</p>
                     </div>
                 `;
             } else {
                 upnextContainer.innerHTML = `
                     <div class="queue-empty-state">
-                        <div class="queue-empty-icon">🎵</div>
+                        <div class="queue-empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
                         <p>No upcoming tracks in queue.</p>
                         <span style="font-size:11px;opacity:0.6;">Click "+ Queue" on any track or start playback for auto-curated music.</span>
                     </div>
@@ -3154,7 +3154,7 @@ function renderQueueDrawer() {
         if (!state.previousTracks || state.previousTracks.length === 0) {
             historyContainer.innerHTML = `
                 <div class="queue-empty-state">
-                    <div class="queue-empty-icon">🕒</div>
+                    <div class="queue-empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
                     <p>No previous songs yet.</p>
                     <span style="font-size:11px;opacity:0.6;">Songs you finish or skip will appear here.</span>
                 </div>
@@ -3195,7 +3195,7 @@ function updatePlayerUI(trackData) {
     const fsTitleEl = document.getElementById('fs-title');
     const fsArtistEl = document.getElementById('fs-artist');
 
-    const fallbackSrc = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400'><rect width='100%25' height='100%25' fill='%231a1a1a'/><text x='50%25' y='50%25' font-size='80' fill='%23444' text-anchor='middle' dominant-baseline='middle'>🎵</text></svg>";
+    const fallbackSrc = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400'><rect width='100%25' height='100%25' fill='%231a1a1a'/><circle cx='160' cy='240' r='40' fill='%23333'/><circle cx='280' cy='210' r='40' fill='%23333'/><path d='M200 240V120l120-30v120' stroke='%23333' stroke-width='24' fill='none'/></svg>";
 
     if (coverEl) {
         if (trackData.cover) {
@@ -3239,7 +3239,7 @@ function updatePlayerUI(trackData) {
                 };
             }
         } else {
-            coverEl.innerHTML = `<div style="width:100%;height:100%;display:grid;place-items:center;font-size:32px;opacity:0.2">🎵</div>`;
+            coverEl.innerHTML = `<div style="width:100%;height:100%;display:grid;place-items:center;opacity:0.25;"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>`;
             if (fsCoverImg) {
                 fsCoverImg.onerror = null;
                 fsCoverImg.src = fallbackSrc;
@@ -3391,11 +3391,11 @@ function setupPlayer() {
             if (state.repeat === 'none' || state.repeat === 'off') { 
                 state.repeat = 'all'; 
                 repeatBtn.classList.add('active'); 
-                repeatBtn.textContent = '🔁'; 
+                repeatBtn.textContent = '↻'; 
                 showToast('Repeat all'); 
             } else if (state.repeat === 'all') { 
                 state.repeat = 'one'; 
-                repeatBtn.textContent = '🔂'; 
+                repeatBtn.textContent = '↻¹'; 
                 showToast('Repeat one'); 
             } else { 
                 state.repeat = 'off'; 
@@ -3869,10 +3869,10 @@ async function toggleLike(trackId, source, encodedData) {
             });
             if (isLiked) {
                 state.likedTrackIds.delete(String(trackId));
-                showToast('Removed from likes (offline queued 📶)');
+                showToast('Removed from liked songs (offline queued)');
             } else {
                 state.likedTrackIds.add(String(trackId));
-                showToast('Added to likes (offline queued 📶)', 'success');
+                showToast('Added to liked songs (offline queued)', 'success');
             }
             updatePlayerLikeButton();
             if (state.currentView === 'library') loadLibrary();
@@ -3886,14 +3886,14 @@ async function toggleLike(trackId, source, encodedData) {
         if (isLiked) {
             await api(`/library/like/${trackId}?source=${source}`, { method: 'DELETE' });
             state.likedTrackIds.delete(String(trackId));
-            showToast('Removed from likes');
+            showToast('Removed from liked songs');
         } else {
             await api('/library/like', {
                 method: 'POST',
                 body: JSON.stringify({ track_id: String(trackId), track_source: source, track_data: trackData })
             });
             state.likedTrackIds.add(String(trackId));
-            showToast('Added to likes ♥', 'success');
+            showToast('Added to liked songs', 'success');
 
             // Send session feedback to boost similar musical DNA (Section 25, 38)
             api('/music/session-feedback', {
@@ -3924,7 +3924,7 @@ async function toggleLike(trackId, source, encodedData) {
                     track_source: source,
                     track_data: trackData
                 });
-                showToast('Network error: Queued change to sync later 📶', 'info');
+                showToast('Network error: Queued change to sync later', 'info');
                 return;
             } catch (queueErr) {}
         }
@@ -4851,7 +4851,7 @@ function setupFullScreenPlayer() {
             optShare.addEventListener('click', async () => {
                 closeFsOptionsMenu();
                 if (state.currentTrack) {
-                    const shareText = `🎵 Listening to "${state.currentTrack.title}" by ${state.currentTrack.artist || 'Unknown'} on BASA`;
+                    const shareText = `Listening to "${state.currentTrack.title}" by ${state.currentTrack.artist || 'Unknown'} on BASA`;
                     try {
                         await navigator.clipboard.writeText(shareText);
                         showToast('Track info copied to clipboard!', 'success');
@@ -5027,7 +5027,7 @@ function startOrOpenJamSession() {
         const btnCreate = document.getElementById('btn-create-room');
         if (btnCreate) {
             btnCreate.click();
-            showToast('🎵 Jam session started! Share your invite code with friends.', 'success');
+            showToast('Jam session started. Share your invite code with friends.', 'success');
         }
     }, 150);
 }
@@ -6015,7 +6015,7 @@ function updatePipelineInspectorUI() {
         const reason = (validation.violations && validation.violations.length > 0) 
             ? validation.violations.join('; ')
             : (validation.reason || (isValid ? 'Pipeline Consistent & Valid' : 'Pipeline Configuration Inconsistent'));
-        valEl.textContent = isValid ? `✓ ${reason}` : `⚠ ${reason}`;
+        valEl.textContent = reason;
         valEl.style.color = isValid ? '#10b981' : '#f59e0b';
     }
 }
@@ -6091,7 +6091,7 @@ function openCandidateSourcesModal(encodedTrackData) {
                         </div>
                         <div style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">
                             ${escapeHtml(providerDisplayName)} · ${escapeHtml(cand.title || '')}
-                            ${cand.cached ? '<span style="color: #71ffba; margin-left: 6px;">⚡ Cached Instant Start</span>' : ''}
+                            ${cand.cached ? '<span style="color: #71ffba; margin-left: 6px;">Cached Instant Start</span>' : ''}
                         </div>
                     </div>
                 </div>
@@ -6519,7 +6519,7 @@ async function downloadTrackFromData(encodedCandidateData) {
         a.click();
         document.body.removeChild(a);
 
-        showToast(`✓ Download started for "${track.title}"`, 'success');
+        showToast(`Download started for "${track.title}"`, 'success');
     } catch (err) {
         console.error('[Download] Error:', err);
         showToast(`Download failed: ${err.message}`, 'error');
@@ -6586,8 +6586,8 @@ async function loadPlaylistsTab() {
         if (playlists.length > 0) {
             grid.innerHTML = playlists.map(pl => `
                 <div class="track-card glass-subtle" onclick="location.hash='#playlist/${pl.id}'">
-                    <div class="track-card-cover" style="display:grid; place-items:center; font-size:36px; background:rgba(255,255,255,0.04);">
-                        🎵
+                    <div class="track-card-cover" style="display:grid; place-items:center; background:rgba(255,255,255,0.04); opacity:0.35;">
+                        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
                     </div>
                     <div class="track-card-info">
                         <div class="track-card-title">${escapeHtml(pl.name)}</div>
@@ -6672,7 +6672,7 @@ async function renderLocalTracks() {
             const durationStr = formatDuration(track.duration || 0);
             const coverImg = track.artworkUrl
                 ? `<img src="${track.artworkUrl}" style="width:40px;height:40px;border-radius:6px;object-fit:cover;" alt="Cover">`
-                : `<div style="width:40px;height:40px;border-radius:6px;background:rgba(255,255,255,0.06);display:grid;place-items:center;font-size:18px;">🎵</div>`;
+                : `<div style="width:40px;height:40px;border-radius:6px;background:rgba(255,255,255,0.06);display:grid;place-items:center;opacity:0.25;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>`;
 
             return `
             <div class="track-list-item" style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid rgba(255,255,255,0.04); cursor:pointer;" onclick="playLocalTrack('${escapeHtml(track.id)}')">
@@ -6910,7 +6910,7 @@ window.addEventListener('beforeinstallprompt', (e) => {
 
 window.addEventListener('appinstalled', () => {
     console.log('[PWA] BASA application installed!');
-    showToast('🎉 BASA App installed successfully!', 'success');
+    showToast('BASA App installed successfully!', 'success');
     deferredInstallPrompt = null;
     const btn = document.getElementById('pwa-install-btn');
     if (btn) btn.classList.remove('has-prompt');
@@ -6930,7 +6930,7 @@ async function triggerNativeInstallPrompt() {
         deferredInstallPrompt.prompt();
         const { outcome } = await deferredInstallPrompt.userChoice;
         if (outcome === 'accepted') {
-            showToast('🎉 Installing BASA App...', 'success');
+            showToast('Installing BASA App...', 'success');
         }
         deferredInstallPrompt = null;
         closePwaInstallModal();
@@ -7188,7 +7188,7 @@ function generateReplayPoster() {
     // Top Songs List
     ctx.fillStyle = '#ffffff';
     ctx.font = '700 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    ctx.fillText('🏆 Top Tracks', 48, 365);
+    ctx.fillText('Top Tracks', 48, 365);
 
     const trackItems = document.querySelectorAll('#replay-top-tracks-list .track-item');
     let startY = 405;
