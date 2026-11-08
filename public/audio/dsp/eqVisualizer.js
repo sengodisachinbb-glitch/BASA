@@ -268,23 +268,8 @@ class EqVisualizer {
         canvasState.tiltX += (canvasState.targetTiltX - canvasState.tiltX) * 0.1;
         canvasState.tiltY += (canvasState.targetTiltY - canvasState.tiltY) * 0.1;
 
-        // 1. Deep Atmospheric Dark Background
-        ctx.fillStyle = '#06060a';
-        ctx.fillRect(0, 0, w, h);
-
-        const bgGrad = ctx.createRadialGradient(
-            w * 0.5 + canvasState.tiltX * 0.5,
-            h * 0.72 + canvasState.tiltY * 0.5,
-            8,
-            w * 0.5,
-            h * 0.5,
-            Math.max(w, h) * 0.8
-        );
-        bgGrad.addColorStop(0, `rgba(${Math.round(curR * 0.18)}, ${Math.round(curG * 0.18)}, ${Math.round(curB * 0.28)}, 0.55)`);
-        bgGrad.addColorStop(0.5, `rgba(${Math.round(curR * 0.06)}, ${Math.round(curG * 0.06)}, ${Math.round(curB * 0.10)}, 0.45)`);
-        bgGrad.addColorStop(1, 'rgba(5, 5, 8, 0.98)');
-        ctx.fillStyle = bgGrad;
-        ctx.fillRect(0, 0, w, h);
+        // 1. Transparent Clear (Seamlessly floats over UI background)
+        ctx.clearRect(0, 0, w, h);
 
         // 2. Concentric Orbital Wireframe Rings in Background (matching screenshot)
         const ringCx = w * 0.5 + canvasState.tiltX * 0.35;
@@ -550,8 +535,6 @@ class EqVisualizer {
                     const w = canvas.width;
                     const h = canvas.height;
                     ctx.clearRect(0, 0, w, h);
-                    ctx.fillStyle = '#06060a';
-                    ctx.fillRect(0, 0, w, h);
 
                     const barCount = Math.min(spectrum.length, 32);
                     const gap = 3 * dpr;
